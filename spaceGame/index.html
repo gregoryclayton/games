@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <link rel="stylesheet" href="style.css">
+  <title>Space Shooter</title>
+</head>
+
+<script>
+  function show() {
+
+      /* Access image by id and change
+      the display property to block*/
+      document.getElementById('titlecard-description')
+              .style.display = "block";
+
+      document.getElementById('titlecard')
+              .style.display = "block";
+  }
+
+  function show2() {
+
+/* Access image by id and change
+the display property to block*/
+document.getElementById('titlecard-description')
+        .style.display = "none";
+
+document.getElementById('titlecard')
+        .style.display = "block";
+}
+</script>
+
+<nav><a href="https://density.substack.com/"> d e n s i t y </a></nav>
+<button id="titlecard" onclick="show()">SPACE ODYSSEY</button>
+<button id="titlecard-description" onclick="show2()">instructions<br>************<br><br>-use the arrows keys to fly up and down<br>-or drag your ship around the screen<br>-spacebar to shoot<br><br>-shoot the asteroids<br><br>don't get hit!<br><br>home is 330000 parsecs away,<br> I hope you make it!</button>
+<div id="score"> Score: <span>0</span></div>
+
+
+<body>
+
+
+  
+  <div id='main-play-area'>
+
+
+    
+  <span>
+    <img id='player-controlled-shooter' src="C:/Users/grego/Desktop/pros/NEW_WEB_STUFF/Experiments/d/spaceGame/ship4.png">
+    
+  </span>
+    
+   
+    <div id="instructions-text"><h3>* * * * * * * * * * * * * * * * * * * * <br><br>The space war is over!</h3><h4>Make it back to Ithica in one piece!<br></h4><h3><br>* * * * * * * * * * * * * * * * * * * * </h3><br></div>
+    <div id="start-button">
+      PLAY
+    </div>
+
+    <div id="distanceContainer">
+      distance:<br>
+
+    <div id="distance"> <span class="digit" id="hr">
+      00</span>
+    
+    <span class="digit" id="min">
+      00</span>
+    
+    <span class="digit" id="sec">
+      00</span>
+    
+    <span class="digit" id="count">
+      00</span></div>
+
+    </div>
+
+
+    <div id="pot1"></div>
+    <div id="pot2"></div>
+    <div id="pot3"></div>
+    <div id="pot4"></div>
+    <div id="pot5"></div>
+    <div id="pot6"></div>
+    <div id="pot7"></div>
+    <div id="pot8"></div>
+    <div id="pot9"></div>
+    <div id="pot10"></div>
+    <div id="pot11"></div>
+    <div id="pot12"></div>
+    <div id="pot13"></div>
+    <div id="pot14"></div>
+    <div id="pot15"></div>
+    <div id="pot16"></div>
+    <div id="pot17"></div>
+
+    <div id="story">shoot the asteroids!<br> don't get hit!</div>
+    <div id="story1">"nothing but space rocks <br>far as the eye can see."</div>
+    <div id="story2">"I can't remember the last time I didn't <br>look out this window and not see any carnage, eh Nestor?"</div>
+    <div id="story3">"--Indeed, the war's lasted 3 years 10 months and 16 days<br> since it began, few days were without action--"</div>
+    <div id="story4">"almost 4 times around the sun in this tin can."</div>
+    <div id="story5">"--And you only washed your sheets twice--"</div>
+    <div id="story6">"What do you care? You're a spaceship."</div>
+    <div id="story7">"--I suppose its more about the gesture than anything else--"</div>
+    <div id="story8">"you'll get over it."</div>
+    <div id="story9">"--I'm getting early warnings that the crew of<br> the Poliphemus has realized there's been a breach <br> in their cargo hold--"</div>
+    <div id="story10">"It's alright, they'll never trace it back to us,<br> it's cool, it's allll cool</div>
+    <div id="story11">"--I suppose, you did decide to strap the stolen containers<br> to the outside of my hull, so there's a chance they might notice--"</div>
+    <div id="story12">"well...if they call just tell them nobody's home"</div>
+    <div id="story13">"--as you wish--"</div>
+    <div id="story14">"These asteroids are endless! <br> It feels like we'll never make it home"</div>
+    <div id="story15">"--chin up, we've seen worse, remember what happened<br> in the Cerce system?--"</div>
+    <div id="story16">"Oh man don't remind me! I just got the smell of<br> burnt pork out of my clothes."</div>
+    <div id="story17">"--plus I'd say that time we outran the entire Posiden Military<br> was good training for these space rocks--"</div>
+    <div id="story18">"Listen to you Mr. Positive."</div>
+    <div id="story19">"--INCOMING TRANSMISSION--INCOMING TRANSMISSION--"</div>
+    <div id="story20">"--Attention crew of the Nestor!<br> This is the cargo ship Poliphemus 6<br> please respond!--"</div>
+    <div id="story21">"..."</div>
+    <div id="story22">"--Attention crew of the Nestor! please respond!--"</div>
+    <div id="story23">"......"</div>
+    <div id="story24">"--nobody's home--"</div>
+    <div id="story25">"It's been a long time since I've seen Penelope<br> I hope she hasn't been too lonely this whole time."</div>
+    <div id="story26">"--...--"</div>
+
+
+
+  </div>
+
+ 
+
+<script type="text/javascript" src="index.js"></script>
+</body>
+</html>
