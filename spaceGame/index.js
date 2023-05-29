@@ -2,7 +2,7 @@ const startButton = document.getElementById("start-button")
 const instructions = document.getElementById("instructions-text")
 const mainPlayArea = document.getElementById("main-play-area")
 const shooter = document.getElementById("player-controlled-shooter")
-const monsterImgs = ['C:/Users/grego/Desktop/pros/NEW_WEB_STUFF/Experiments/d/spaceGame/ass1.png','C:/Users/grego/Desktop/pros/NEW_WEB_STUFF/Experiments/d/spaceGame/ass2.png','C:/Users/grego/Desktop/pros/NEW_WEB_STUFF/Experiments/d/spaceGame/ass3.png']
+const monsterImgs = ['path to images for asteroids/monsters']
 const scoreCounter = document.querySelector('#score span')
 
 let justice
@@ -68,7 +68,7 @@ function createLaserElement() {
   let xPosition = parseInt(window.getComputedStyle(shooter).getPropertyValue('left'))
   let yPosition = parseInt(window.getComputedStyle(shooter).getPropertyValue('top'))
   let newLaser = document.createElement('img')
-  newLaser.src = 'C:/Users/grego/Desktop/pros/NEW_WEB_STUFF/Experiments/d/spaceGame/laser.jpg'
+  newLaser.src = 'path to laser image'
   newLaser.classList.add('laser')
   newLaser.style.left = `${xPosition}px`
   newLaser.style.top = `${yPosition - (-70)}px`
@@ -84,7 +84,7 @@ function moveLaser(laser) {
       if (checkLaserCollision(laser, monster)) {
         let explosion = new Audio('audio/explosion.m4a')
         explosion.play()
-        monster.src = "C:/Users/grego/Desktop/pros/NEW_WEB_STUFF/Experiments/d/spaceGame/boom.png"
+        monster.src = "path to explosion image"
         monster.classList.remove("monster")
         monster.classList.add("dead-monster")
         scoreCounter.innerText = parseInt(scoreCounter.innerText) + 100
@@ -184,7 +184,7 @@ function playGame() {
   startButton.style.display = 'none'
   instructions.style.display = 'none'
   window.addEventListener("keydown", letShipFly)
-  justice = new Audio("audio/Justice-One-Minute-To-Midnight.m4a")
+  justice = new Audio("path to song")
   justice.play()
   monsterInterval = setInterval(() => { createMonster() }, 6000)
   
@@ -211,7 +211,6 @@ let deviceType = "";
 //Detech touch device
 const isTouchDevice = () => {
   try {
-    //We try to create TouchEvent (it would fail for desktops and throw error)
     document.createEvent("TouchEvent");
     deviceType = "touch";
     return true;
