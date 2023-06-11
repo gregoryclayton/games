@@ -1,0 +1,176 @@
+
+<html>
+    <head>
+        <title></title>
+
+        <style>
+
+            body {
+                background-color: rgb(184, 229, 229);
+            }
+
+            #playarea {
+                width:100%;
+                height: 393px;
+            }
+
+            #sat {
+                width:9px;
+                height:9px;
+                border-radius: 50%;
+                background-color: rgb(214, 60, 60);
+                bottom:150px;
+                z-index: 2;
+                left: 200px;
+                position: absolute;
+                
+            }
+
+            #satgoal {
+                width:20px;
+                height:20px;
+                border-radius: 50%;
+                background-color: rgb(212, 146, 65);
+                right:220px;
+                bottom:300px;
+                z-index: 1;
+                position: absolute;
+            }
+
+
+
+            #dude {
+                width:10px;
+                height:30px;
+                background-color: blueviolet;
+                z-index: 1;
+             
+            }
+
+            #ground {
+                position: absolute;
+                width:100%;
+                height:150px;
+                bottom:0px;
+                background-color: rgb(210, 175, 175);
+                left: 0px;
+            }
+
+            #building1 {
+                width:250px;
+                height: 150px;
+                background-color: rgb(245, 245, 228);
+                bottom:150px;
+                right:100px;
+                position: absolute;
+            }
+
+            
+            #house {
+                width:150px;
+                height: 80px;
+                background-color: rgb(231, 231, 204);
+                bottom:150px;
+                right:230px;
+                position: absolute;
+            }
+          
+            #level {
+                position: absolute;
+                color: black;
+                font-family: monospace;
+                left:70%;
+                bottom:20%;
+            }
+
+            #endurance {
+                position: absolute;
+                color: black;
+                font-family: monospace;
+                left:70%;
+                bottom:15%;
+            }
+
+            #health {
+                position: absolute;
+                color: black;
+                font-family: monospace;
+                left:70%;
+                bottom:10%;
+            }
+
+            #menu {
+                position: absolute;
+                color: black;
+                font-family: monospace;
+                left:180px;
+                bottom:12%;
+                background-color:rgb(210, 175, 175) ;
+            }
+
+            #options {
+                position: absolute;
+                color: black;
+                font-family: monospace;
+                left:80px;
+                bottom:12%;
+                background-color: rgb(210, 175, 175);
+            }
+          
+        </style>
+        <script type="text/javascript">
+            //init object globally
+            var objImage = null;
+            function init() {
+                objImage = document.getElementById("dude");
+                objImage.style.position = "relative";
+                objImage.style.left = "10px";
+                objImage.style.top = "100%";
+            }
+            function getKeyAndMove(e) {
+                var key_code = e.which || e.keyCode;
+                switch (key_code) {
+                    case 37: //left arrow key
+                        moveLeft();
+                        break;
+                   
+                    case 39: //right arrow key
+                        moveRight();
+                        break;
+                   
+                }
+            }
+            function moveLeft() {
+                objImage.style.left = parseInt(objImage.style.left) - 10 + "px";
+            }
+           
+            function moveRight() {
+                objImage.style.left = parseInt(objImage.style.left) + 10 + "px";
+            }
+           
+            window.onload = init;
+        </script>
+    </head>
+
+    <body onkeydown="getKeyAndMove(event)">
+
+        <div id="playarea">
+      
+   
+        <div id="dude"></div>
+        <div id="sat"></div>
+        <div id="satgoal"></div>
+
+        <div id="building1"></div>
+        <div id="house"></div>
+
+        <div id="ground"></div>
+        <div id="level">LEVEL:1</div>
+        <div id="endurance">ENDURANCE:10</div>
+        <div id="health">HEALTH:10</div>
+        <button id="menu">MENU</button>
+        <button id="options">OPTIONS</button>
+
+    </div>
+    </body>
+</html>

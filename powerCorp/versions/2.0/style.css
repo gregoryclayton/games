@@ -1,0 +1,60 @@
+* {
+
+    box-sizing:border-box;
+    margin:0;
+    padding:0;
+  
+  }
+  
+  html {
+  
+    height:100%;
+    width:100%;
+  
+  }
+  
+  body {
+  
+    align-content:space-around;
+    background-color:#96acc2;
+    color:#ffffff;
+    display:grid;
+    grid-template-columns:auto;
+    grid-template-rows:auto auto auto auto;
+    height:100%;
+    justify-content:space-around;
+    text-align:center;
+    width:100%;
+  
+  }
+
+  #ball {
+    background-color: red;
+    width:10px;
+    height:10px;
+    border-radius: 50%;
+    position:absolute;
+    float:left; 
+    top: 283px;
+    left:710px;
+
+  }
+
+  p { 
+    float: left;
+    position: absolute;
+    top:100px;
+    left:60px;
+    font-family: monospace;
+    color:black;
+  }
+  
+  canvas {
+  
+    background-color:#4c893d;
+    width:1000px;
+    height:500px;
+    
+    
+  
+  }

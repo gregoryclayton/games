@@ -1,0 +1,60 @@
+body {
+    background-color: rgb(183, 214, 203);
+}
+
+
+#playArea {
+    width: 80%;
+    height: 80%;
+}
+
+#dude {
+  
+    background-color: rgba(132, 26, 26, 0.906);
+    width: 10px;
+    height: 30px;
+   
+    
+    z-index: 1;
+}
+
+#sat {
+    position: absolute;
+    bottom:140px;
+    left:170px;
+    width:10px;
+    height:10px;
+    border-radius: 50%;
+    background-color: rgb(158, 124, 44);
+    z-index: 2;
+}
+
+#satgoal {
+    position: absolute;
+    bottom:300px;
+    right:100px;
+    width:15px;
+    height:15px;
+    border-radius: 50%;
+    background-color: rgb(168, 60, 60);
+    z-index: 1; 
+}
+
+#building {
+    position: absolute;
+    width:200px;
+    height:200px;
+    background-color: blanchedalmond;
+    right: 80px;
+    bottom: 100px;
+    z-index: 0;
+}
+
+#ground {
+    position: fixed;
+    width: 105%;
+    height:140px;
+    bottom: 0px;
+    background-color: rgb(168, 168, 156);
+    left: -10px;
+}
