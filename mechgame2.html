@@ -21,6 +21,7 @@
         #timerUI { top:20px; right:20px; font-size: 1.5rem; }
         #difficultyContainer, #teamSelection, #teamSizeSelection { margin-top:2rem; }
     </style>
+    <script src="levels.js"></script>
 </head>
 <body>
     <div id="mainMenu">
@@ -66,10 +67,9 @@
 
 <script>
 /*
-  mechgame.html - Full Map Editor Update
-  - NEW: LEVEL_DATA now supports characters for spawning players, enemies, items, and objects.
-  - NEW: ENTITY_KEY object maps characters to spawn functions.
-  - REFACTOR: initializeGame() now parses LEVEL_DATA to build the entire level, including all entities.
+  mechgame.html - Main Game Logic
+  - Loads level data and entity definitions from levels.js.
+  - Contains core game classes and the main game loop.
 */
 
 class InputHandler {
@@ -726,93 +726,17 @@ class Chair extends PhysicsEntity {
     }
 }
 
-const TILE_KEY = {
-    ' ': null,
-    'G': { type: 'grass',    health: 6, maxHealth: 6, ricochetChance: 0, color: '#6A9E49' },
-    'D': { type: 'dirt',     health: 6, maxHealth: 6, ricochetChance: 0, color: '#966A4A' },
-    'X': { type: 'dirt',     health: 18, maxHealth: 18, ricochetChance: 0, color: '#6e4f37' },
-    'P': { type: 'platform', health: 4, maxHealth: 4, ricochetChance: 0.1, color: '#C2B280' },
-    'L': { type: 'glass',    health: 1, maxHealth: 1, ricochetChance: 0.05, color: 'lightblue' },
-    'W': { type: 'wood',     health: 8, maxHealth: 8, ricochetChance: 0.1, color: '#A0522D' },
-    'C': { type: 'concrete', health: 25, maxHealth: 25, ricochetChance: 0.4, color: '#808080' },
-    'M': { type: 'metal',    health: 50, maxHealth: 50, ricochetChance: 0.8, color: '#A9A9A9' },
-    'B': { type: 'beam',     health: 10, maxHealth: 10, ricochetChance: 0.1, color: '#736f6e' },
-    'F': { type: 'gascan',   health: 2, maxHealth: 2, ricochetChance: 0.5, color: '#c00' },
-};
-
-const LEVEL_DATA = [
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "      S                                                                                                                                                                                                                                                         ",
-    "                                                                                                                                                                                                                                                              ",
-    "        3                                                                                                                                                                                                                                                       ",
-    "                                                                                                                                                                                                                                                              ",
-    "          4                                                                                                                                                                                                                                                     ",
-    "                                                                                                                                                                                                                                                              ",
-    "            5                                                                                                                                                                                                                                                   ",
-    "                                                                                                                                                                                                                                                              ",
-    "   6                                                                                                                                                                                                                                                            ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "      X                                                                                                                                                                                                                                                       ",
-    "      X                                                                                                                                                                                                                                                       ",
-    "      X         PP                                                                                                                                                                                                                                              ",
-    "      X                                                                                                                                                                                                                                                       ",
-    "      X                                   C                                                                                                                                                                   XXXXXXXXXXXXXXXXX                           ",
-    "      X           PP                        C C                                                                                                                                                               X             X                           ",
-    "      X                                                                                     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                                                                                 X        R    X                           ",
-    "      X                                                                                     X                               X                                                                                 X       R     X                           ",
-    "      X             PP                                                                      X                               X                                                                                 X      R H    X                           ",
-    "      X                                                                                     X              V                X                                                                                 X             X                           ",
-    "      X                                   1    2                                            X                               X                                                                                 X      S      X                           ",
-    "      X               PP                                                                    X                               X                                                                                 X             X                           ",
-    "      X                                                                                     X                               X                                                                                 X             X                           ",
-    "      X                                                                                     X                               X                                                                                 X             X                           ",
-    "      X                 PP                                                                  X                               X                                                                                 XXXXXXXXXXXXXXXXX                           ",
-    "GGGGGGXGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-];
-
 class World { 
     constructor(w,h,tileSize){ 
         this.width = w; this.height = h; this.TILE_SIZE = tileSize;
         this.grid = []; 
-        // This is now handled in initializeGame()
-        // this.generate(); 
     } 
     generateFromLevelData(levelData, tileKey){ 
         this.grid = Array(this.height).fill(null).map(() => Array(this.width).fill(null));
         for (let y = 0; y < levelData.length; y++) {
             for (let x = 0; x < levelData[y].length; x++) {
                 const char = levelData[y][x];
+                // Check for tile first, entity will be placed on top.
                 const tileInfo = tileKey[char];
                 if (tileInfo) {
                     this.grid[y][x] = { ...tileInfo };
@@ -878,48 +802,24 @@ document.addEventListener('DOMContentLoaded', ()=> {
     let input, world, player, cops, criminals, vehicle, hostage, chairs, camera, allEntities, projectiles, mousePos = {x:0, y:0}, isMouseDown, shootTimer, pickups, explosions, smokeClouds, stunClouds, throwableProjectiles;
     let animationFrameId, gameStartTime, gameDifficulty = 3, playerTeam = 'cops', gameTeamSize = 2;
 
-    const ENTITY_KEY = {
-        'C': (x, y) => {
-            const p = new Player(x, y, TILE_SIZE, 'green', true, false, false, gameDifficulty);
-            if (playerTeam === 'cops' && !player) {
-                p.isPlayer = true; p.color = 'darkblue'; player = p;
-            }
-            cops.push(p);
-        },
-        'R': (x, y) => {
-            const p = new Player(x, y, TILE_SIZE, 'red', false, true, false, gameDifficulty);
-            if (playerTeam === 'criminals' && !player) {
-                p.isPlayer = true; p.color = 'darkred'; player = p;
-            }
-            criminals.push(p);
-        },
-        'H': (x, y) => { hostage = new Player(x, y, TILE_SIZE, 'yellow', false, false, true); },
-        'V': (x, y) => { vehicle = new Vehicle(x, y, TILE_SIZE); },
-        'S': (x, y) => { chairs.push(new Chair(x, y, TILE_SIZE)); },
-        '1': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Grenade", "ranged", 12, 70, 1, 0, 'grenade', 4, 4, 2), TILE_SIZE)),
-        '2': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Shotgun", "ranged", 2, 40, 3, 0.2, 'bullet', 8, 16, 6), TILE_SIZE)),
-        '3': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("SMG", "ranged", 1, 5, 1, 0.1, 'bullet', 30, 60, 4), TILE_SIZE)),
-        '4': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Toaster", "throwable", 5, 50, 1, 0, 'toaster', 1, 1, 4), TILE_SIZE)),
-        '5': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Stun Grenade", "ranged", 0, 70, 1, 0, 'stun', 2, 2, 2), TILE_SIZE)),
-        '6': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Explosive Charge", "explosive", 15, 20, 1, 0, 'charge', 1, 1, 5), TILE_SIZE)),
-        '7': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Shield", "defense", 0, 0, 0, 0, 'none', 1, 1, 10), TILE_SIZE)),
-        '8': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Sniper", "ranged", 10, 120, 1, 0, 'bullet', 5, 10, 8), TILE_SIZE)),
-        '9': (x, y) => pickups.push(new Pickup(x, y, 'ammo', 10, TILE_SIZE)),
-    };
-
     function initializeGame(){
         input = new InputHandler();
         world = new World(WORLD_W, WORLD_H, TILE_SIZE);
         
-        cops = []; criminals = []; chairs = []; pickups = []; player = null; hostage = null; vehicle = null;
-
+        let gameContext = {
+            TILE_SIZE, gameDifficulty, playerTeam,
+            cops: [], criminals: [], chairs: [], pickups: [],
+            player: null, hostage: null, vehicle: null,
+        };
+        
+        const entityKey = getEntityKey(gameContext);
         let copSpawnCount = 0;
         let criminalSpawnCount = 0;
 
         for (let y = 0; y < LEVEL_DATA.length; y++) {
             for (let x = 0; x < LEVEL_DATA[y].length; x++) {
                 const char = LEVEL_DATA[y][x];
-                const spawnFn = ENTITY_KEY[char];
+                const spawnFn = entityKey[char];
                 if (spawnFn) {
                     let canSpawn = true;
                     if (char === 'C') {
@@ -929,12 +829,13 @@ document.addEventListener('DOMContentLoaded', ()=> {
                         if (criminalSpawnCount >= gameTeamSize) canSpawn = false;
                         else criminalSpawnCount++;
                     }
-                    
                     if(canSpawn) spawnFn(x * TILE_SIZE, y * TILE_SIZE);
                 }
             }
         }
         
+        ({ player, cops, criminals, hostage, vehicle, chairs, pickups } = gameContext);
+
         world.generateFromLevelData(LEVEL_DATA, TILE_KEY);
 
         allEntities = [ ...cops, ...criminals];
