@@ -3,14 +3,14 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Mech Game - Main Menu</title>
+    <title>Mech Game - Win Condition</title>
     <style>
         body { margin:0; background:#111; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:white; }
         canvas { image-rendering: pixelated; background:#87CEEB; border:2px solid #222; cursor:none; }
         .hidden { display: none !important; }
-        #mainMenu { text-align: center; }
-        #mainMenu h1 { font-size: 4rem; margin-bottom: 2rem; }
-        #quickGameButton {
+        #mainMenu, #winScreen { text-align: center; }
+        h1 { font-size: 4rem; margin-bottom: 2rem; }
+        .menu-button {
             font-size: 1.5rem;
             padding: 1rem 2rem;
             background: #333;
@@ -19,7 +19,7 @@
             cursor: pointer;
             transition: background 0.2s;
         }
-        #quickGameButton:hover { background: #444; }
+        .menu-button:hover { background: #444; }
         #restartButton { position:absolute; top:20px; left:20px; z-index:20; padding:8px 12px; }
         #weaponUI { position:absolute; top:60px; left:20px; z-index:20; padding:8px 12px; color:white; background:rgba(0,0,0,0.4); border-radius:6px; }
     </style>
@@ -27,7 +27,12 @@
 <body>
     <div id="mainMenu">
         <h1>Mech Game</h1>
-        <button id="quickGameButton">Quick Game</button>
+        <button id="quickGameButton" class="menu-button">Quick Game</button>
+    </div>
+
+    <div id="winScreen" class="hidden">
+        <h1>You Win!</h1>
+        <button id="mainMenuButton" class="menu-button">Main Menu</button>
     </div>
 
     <button id="restartButton" class="hidden">Restart</button>
@@ -37,12 +42,13 @@
 <script>
 /*
   mechgame.html - Complete version with all features:
-  - NEW: Added a main menu with a "Quick Game" button to start the game.
-  - Weapons now have limited ammo, which can be replenished by new ammo box pickups.
-  - UI updated to show ammo count.
-  - CRITICAL FIX: Vehicle entry crash has been permanently fixed by refactoring the camera logic.
-  - Smoke grenades now correctly emit smoke particles and block enemy line of sight.
-  - Added a passive "Hostage" character, and the enemy AI now defends them.
+  - NEW: Win condition implemented. Kill the enemy and interact with the hostage ('v') to win.
+  - NEW: A "You Win!" screen is displayed upon winning, with a button to return to the main menu.
+  - Ammo limits and ammo box pickups.
+  - Main menu with a "Quick Game" button.
+  - CRITICAL FIX: Vehicle entry crash has been permanently fixed.
+  - Smoke grenades block enemy line of sight.
+  - Enemy AI defends the hostage.
 */
 
 class InputHandler {
@@ -211,7 +217,7 @@ class Player extends PhysicsEntity {
         super(x,y,ts);
         this.width = ts*2; this.bodyHeight = ts*3; this.headRadius = this.width * 0.4;
         this.originalHeight = this.bodyHeight; this.duckHeight = this.bodyHeight * 0.5; this.height = this.originalHeight; 
-        this.color = color; this.isEnemy=isEnemy; this.isHostage=isHostage; this.isInVehicle=false;
+        this.color = color; this.isEnemy=isEnemy; this.isHostage=isHostage; this.isRescued = false; this.isInVehicle=false;
         this.isDucking = false; this.hasHelmet = !isHostage; this.acceleration = 0.4; this.friction=0.88; this.maxSpeed = 4; this.jumpStrength = 12;
         this.sprintMultiplier = 2; this.sprintTimer = 0; this.lastMoveDirection = 0;
         this.isWallSliding=false; this.wallSlideSpeed = 2; this.wallJumpLockTimer=0; this.wallJumpLockDuration=10; this.wallSlideDirection=0;
@@ -347,7 +353,9 @@ class Camera { constructor(canvas){ this.canvas = canvas; this.x = 0; this.y = 0
 
 document.addEventListener('DOMContentLoaded', ()=> {
     const mainMenu = document.getElementById('mainMenu');
+    const winScreen = document.getElementById('winScreen');
     const quickGameButton = document.getElementById('quickGameButton');
+    const mainMenuButton = document.getElementById('mainMenuButton');
     const canvas = document.getElementById('gameCanvas');
     const restartButton = document.getElementById('restartButton');
     const weaponUI = document.getElementById('weaponUI');
@@ -357,6 +365,7 @@ document.addEventListener('DOMContentLoaded', ()=> {
     canvas.width = 1280; canvas.height = 720;
     
     let input, world, player, enemy, vehicle, hostage, camera, allEntities, projectiles, mousePos, isMouseDown, shootTimer, pickups, explosions, smokeClouds;
+    let animationFrameId;
 
     function initializeGame(){
         input = new InputHandler(); world = new World(WORLD_W, WORLD_H, TILE_SIZE);
@@ -376,18 +385,37 @@ document.addEventListener('DOMContentLoaded', ()=> {
         projectiles = []; explosions = []; smokeClouds = []; mousePos = {x:0,y:0}; isMouseDown = false; shootTimer = 0; camera = new Camera(canvas);
     }
     
+    function showMainMenu() {
+        mainMenu.classList.remove('hidden');
+        winScreen.classList.add('hidden');
+        canvas.classList.add('hidden');
+        restartButton.classList.add('hidden');
+        weaponUI.classList.add('hidden');
+    }
+
     function startGame() {
         mainMenu.classList.add('hidden');
+        winScreen.classList.add('hidden');
         canvas.classList.remove('hidden');
         restartButton.classList.remove('hidden');
         weaponUI.classList.remove('hidden');
         
         initializeGame();
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
         gameLoop();
+    }
+
+    function showWinScreen() {
+        winScreen.classList.remove('hidden');
+        canvas.classList.add('hidden');
+        restartButton.classList.add('hidden');
+        weaponUI.classList.add('hidden');
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
     }
 
     quickGameButton.addEventListener('click', startGame);
     restartButton.addEventListener('click', initializeGame);
+    mainMenuButton.addEventListener('click', showMainMenu);
     
     canvas.addEventListener('mousedown', ()=> isMouseDown = true); canvas.addEventListener('mouseup', ()=> isMouseDown = false);
     canvas.addEventListener('mousemove', e => { const r = canvas.getBoundingClientRect(); mousePos.x = e.clientX - r.left; mousePos.y = e.clientY - r.top; });
@@ -399,14 +427,9 @@ document.addEventListener('DOMContentLoaded', ()=> {
         const currentWeapon = player.isInVehicle ? vehicle.weapon : player.getCurrentWeapon();
         if(currentWeapon){
             uiText += currentWeapon.name;
-            if(currentWeapon.ammo !== undefined && currentWeapon.ammo !== Infinity){
-                uiText += ` | ${currentWeapon.ammo}/${currentWeapon.maxAmmo}`;
-            } else if (currentWeapon.name === 'Pistol') {
-                 uiText += ` | ∞`;
-            }
-        } else {
-            uiText += 'Fist';
-        }
+            if(currentWeapon.ammo !== undefined && currentWeapon.ammo !== Infinity){ uiText += ` | ${currentWeapon.ammo}/${currentWeapon.maxAmmo}`; } 
+            else if (currentWeapon.name === 'Pistol') { uiText += ` | ∞`; }
+        } else { uiText += 'Fist'; }
         weaponUI.textContent = uiText;
     }
 
@@ -417,7 +440,8 @@ document.addEventListener('DOMContentLoaded', ()=> {
             const weapon = shooter.weapon || (shooter.getCurrentWeapon && shooter.getCurrentWeapon());
             if(shooter.health > 0 && weapon && weapon.ammo > 0){
                 const worldMouseX = (mousePos.x - canvas.width/2)/camera.zoom + camera.x, worldMouseY = (mousePos.y - canvas.height/2)/camera.zoom + camera.y;
-                const launchX = shooter.x+shooter.width/2, launchY = (shooter.getHeadRect? shooter.getHeadRect().y : shooter.y + shooter.height/2) || shooter.y + shooter.height/2;
+                const launchY = (shooter.getHeadRect? shooter.getHeadRect().y : shooter.y + shooter.height/2) || shooter.y + shooter.height/2;
+                const launchX = shooter.x+shooter.width/2;
                 if(weapon.projectileType === 'grenade' || weapon.projectileType === 'smoke') {
                     const angle = Math.atan2(worldMouseY - launchY, worldMouseX - launchX);
                     projectiles.push(new ThrownGrenade(launchX, launchY, Math.cos(angle)*15, Math.sin(angle)*15, weapon.damage, TILE_SIZE, weapon.projectileType));
@@ -440,7 +464,7 @@ document.addEventListener('DOMContentLoaded', ()=> {
             }
             if(!pickedUpItem){
                 const curWeapon = player.getCurrentWeapon();
-                if(curWeapon && curWeapon.name !== 'Fist'){
+                if(curWeapon && curWeapon.name !== 'Fist' && curWeapon.name !== 'Pistol'){
                     const removed = player.weapons.splice(player.currentWeaponIndex,1)[0];
                     if(player.currentWeaponIndex >= player.weapons.length) player.currentWeaponIndex = player.weapons.length - 1; if(player.currentWeaponIndex < 0) player.currentWeaponIndex = 0;
                     const p = new Pickup(player.x+player.width/2-TILE_SIZE/2, player.y-player.height*0.25, 'weapon', removed, TILE_SIZE);
@@ -448,7 +472,17 @@ document.addEventListener('DOMContentLoaded', ()=> {
                 }
             }
         }
-        if(input.wasKeyJustPressed('v') && player.health > 0){ if(player.isInVehicle){ vehicle.eject(); } else if(Math.hypot((player.x+player.width/2)-(vehicle.x+vehicle.width/2),(player.y+player.height/2)-(vehicle.y+vehicle.height/2))<vehicle.width*1.2 && !vehicle.occupant){ player.isInVehicle=true; vehicle.occupant=player; } }
+
+        if(input.wasKeyJustPressed('v') && player.health > 0 && !player.isInVehicle){ 
+            if(Math.hypot((player.x+player.width/2)-(vehicle.x+vehicle.width/2),(player.y+player.height/2)-(vehicle.y+vehicle.height/2)) < vehicle.width*1.2 && !vehicle.occupant) {
+                player.isInVehicle=true; vehicle.occupant=player;
+            } else if (enemy.health <= 0 && Math.hypot((player.x+player.width/2)-(hostage.x+hostage.width/2), (player.y+player.height/2)-(hostage.y+hostage.height/2)) < TILE_SIZE * 3) {
+                hostage.isRescued = true;
+            }
+        } else if (input.wasKeyJustPressed('v') && player.isInVehicle) {
+            vehicle.eject();
+        }
+
         if(!player.isInVehicle){ if(input.wasKeyJustPressed('q'))player.cycleWeapon(-1); if(input.wasKeyJustPressed('e'))player.cycleWeapon(1); }
         
         const gameContext = { player, enemy, hostage };
@@ -456,6 +490,11 @@ document.addEventListener('DOMContentLoaded', ()=> {
         [...projectiles, ...pickups, ...explosions, ...smokeClouds].forEach(o => o.update(world, allEntities, pickups, explosions, smokeClouds));
         projectiles = projectiles.filter(p => p.active); pickups = pickups.filter(p => !p.collected); explosions = explosions.filter(e => e.active); smokeClouds = smokeClouds.filter(s => s.active);
         
+        if (hostage.isRescued) {
+            showWinScreen();
+            return;
+        }
+
         const cameraTarget = player.isInVehicle ? vehicle : player;
         camera.update(cameraTarget);
 
@@ -466,7 +505,7 @@ document.addEventListener('DOMContentLoaded', ()=> {
         ctx.restore();
         drawCrosshair(ctx); updateUI();
         input.clearJustPressed();
-        requestAnimationFrame(gameLoop);
+        animationFrameId = requestAnimationFrame(gameLoop);
     }
 });
 </script>
