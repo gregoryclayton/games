@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Mech Game - Spawning Fix</title>
+    <title>Mech Game - Full Map Editor</title>
     <style>
         body { margin:0; background:#111; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:white; }
         canvas { image-rendering: pixelated; background:#87CEEB; border:2px solid #222; cursor:none; }
@@ -66,10 +66,10 @@
 
 <script>
 /*
-  mechgame.html - Refactor for Map Generation
-  - BUGFIX: Corrected spawn coordinates for allies, enemies, and the hostage.
-  - UPDATE: Map generation now uses a visual, string-based array (LEVEL_DATA) for easy editing.
-  - NEW: TILE_KEY object maps characters from LEVEL_DATA to tile properties.
+  mechgame.html - Full Map Editor Update
+  - NEW: LEVEL_DATA now supports characters for spawning players, enemies, items, and objects.
+  - NEW: ENTITY_KEY object maps characters to spawn functions.
+  - REFACTOR: initializeGame() now parses LEVEL_DATA to build the entire level, including all entities.
 */
 
 class InputHandler {
@@ -730,7 +730,7 @@ const TILE_KEY = {
     ' ': null,
     'G': { type: 'grass',    health: 6, maxHealth: 6, ricochetChance: 0, color: '#6A9E49' },
     'D': { type: 'dirt',     health: 6, maxHealth: 6, ricochetChance: 0, color: '#966A4A' },
-    'H': { type: 'dirt',     health: 18, maxHealth: 18, ricochetChance: 0, color: '#6e4f37' },
+    'X': { type: 'dirt',     health: 18, maxHealth: 18, ricochetChance: 0, color: '#6e4f37' },
     'P': { type: 'platform', health: 4, maxHealth: 4, ricochetChance: 0.1, color: '#C2B280' },
     'L': { type: 'glass',    health: 1, maxHealth: 1, ricochetChance: 0.05, color: 'lightblue' },
     'W': { type: 'wood',     health: 8, maxHealth: 8, ricochetChance: 0.1, color: '#A0522D' },
@@ -747,37 +747,37 @@ const LEVEL_DATA = [
     "                                                                                                                                                                                                                                                              ",
     "                                                                                                                                                                                                                                                              ",
     "                                                                                                                                                                                                                                                              ",
+    "      S                                                                                                                                                                                                                                                         ",
+    "                                                                                                                                                                                                                                                              ",
+    "        3                                                                                                                                                                                                                                                       ",
+    "                                                                                                                                                                                                                                                              ",
+    "          4                                                                                                                                                                                                                                                     ",
+    "                                                                                                                                                                                                                                                              ",
+    "            5                                                                                                                                                                                                                                                   ",
+    "                                                                                                                                                                                                                                                              ",
+    "   6                                                                                                                                                                                                                                                            ",
     "                                                                                                                                                                                                                                                              ",
     "                                                                                                                                                                                                                                                              ",
     "                                                                                                                                                                                                                                                              ",
     "                                                                                                                                                                                                                                                              ",
     "                                                                                                                                                                                                                                                              ",
     "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "                                                                                                                                                                                                                                                              ",
-    "      H                                                                                                                                                                                                                                                       ",
-    "      H                                                                                                                                                                                                                                                       ",
-    "      H         PP                                                                                                                                                                                                                                              ",
-    "      H                                                                                                                                                                                                                                                       ",
-    "      H                                                                                                                                                                                                           HHHHHHHHHHHHHHH                           ",
-    "      H           PP                                                                                                                                                                                              H             H                           ",
-    "      H                                                                                     HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH                                                                                       H             H                           ",
-    "      H                                                                                     H                               H                                                                                       H             H                           ",
-    "      H             PP                                                                      H                               H                                                                                       H             H                           ",
-    "      H                                                                                     H                               H                                                                                       H             H                           ",
-    "      H                                                                                     H                               H                                                                                       H             H                           ",
-    "      H               PP                                                                    H                               H                                                                                       H             H                           ",
-    "      H                                                                                     H                               H                                                                                       H             H                           ",
-    "      H                                                                                     H                               H                                                                                       H             H                           ",
-    "      H                 PP                                                                  H                               H                                                                                       HHHHHHHHHHHHHHH                           ",
-    "GGGGGGHGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+    "      X                                                                                                                                                                                                                                                       ",
+    "      X                                                                                                                                                                                                                                                       ",
+    "      X         PP                                                                                                                                                                                                                                              ",
+    "      X                                                                                                                                                                                                                                                       ",
+    "      X                                   C                                                                                                                                                                   XXXXXXXXXXXXXXXXX                           ",
+    "      X           PP                        C C                                                                                                                                                               X             X                           ",
+    "      X                                                                                     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                                                                                 X        R    X                           ",
+    "      X                                                                                     X                               X                                                                                 X       R     X                           ",
+    "      X             PP                                                                      X                               X                                                                                 X      R H    X                           ",
+    "      X                                                                                     X              V                X                                                                                 X             X                           ",
+    "      X                                   1    2                                            X                               X                                                                                 X      S      X                           ",
+    "      X               PP                                                                    X                               X                                                                                 X             X                           ",
+    "      X                                                                                     X                               X                                                                                 X             X                           ",
+    "      X                                                                                     X                               X                                                                                 X             X                           ",
+    "      X                 PP                                                                  X                               X                                                                                 XXXXXXXXXXXXXXXXX                           ",
+    "GGGGGGXGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
     "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
     "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
     "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
@@ -796,21 +796,24 @@ const LEVEL_DATA = [
     "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
     "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
     "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
 ];
 
 class World { 
     constructor(w,h,tileSize){ 
         this.width = w; this.height = h; this.TILE_SIZE = tileSize;
         this.grid = []; 
-        this.generate(); 
+        // This is now handled in initializeGame()
+        // this.generate(); 
     } 
-    generate(){ 
+    generateFromLevelData(levelData, tileKey){ 
         this.grid = Array(this.height).fill(null).map(() => Array(this.width).fill(null));
-        for (let y = 0; y < LEVEL_DATA.length; y++) {
-            for (let x = 0; x < LEVEL_DATA[y].length; x++) {
-                const char = LEVEL_DATA[y][x];
-                const tileInfo = TILE_KEY[char];
+        for (let y = 0; y < levelData.length; y++) {
+            for (let x = 0; x < levelData[y].length; x++) {
+                const char = levelData[y][x];
+                const tileInfo = tileKey[char];
                 if (tileInfo) {
                     this.grid[y][x] = { ...tileInfo };
                 }
@@ -875,43 +878,70 @@ document.addEventListener('DOMContentLoaded', ()=> {
     let input, world, player, cops, criminals, vehicle, hostage, chairs, camera, allEntities, projectiles, mousePos = {x:0, y:0}, isMouseDown, shootTimer, pickups, explosions, smokeClouds, stunClouds, throwableProjectiles;
     let animationFrameId, gameStartTime, gameDifficulty = 3, playerTeam = 'cops', gameTeamSize = 2;
 
+    const ENTITY_KEY = {
+        'C': (x, y) => {
+            const p = new Player(x, y, TILE_SIZE, 'green', true, false, false, gameDifficulty);
+            if (playerTeam === 'cops' && !player) {
+                p.isPlayer = true; p.color = 'darkblue'; player = p;
+            }
+            cops.push(p);
+        },
+        'R': (x, y) => {
+            const p = new Player(x, y, TILE_SIZE, 'red', false, true, false, gameDifficulty);
+            if (playerTeam === 'criminals' && !player) {
+                p.isPlayer = true; p.color = 'darkred'; player = p;
+            }
+            criminals.push(p);
+        },
+        'H': (x, y) => { hostage = new Player(x, y, TILE_SIZE, 'yellow', false, false, true); },
+        'V': (x, y) => { vehicle = new Vehicle(x, y, TILE_SIZE); },
+        'S': (x, y) => { chairs.push(new Chair(x, y, TILE_SIZE)); },
+        '1': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Grenade", "ranged", 12, 70, 1, 0, 'grenade', 4, 4, 2), TILE_SIZE)),
+        '2': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Shotgun", "ranged", 2, 40, 3, 0.2, 'bullet', 8, 16, 6), TILE_SIZE)),
+        '3': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("SMG", "ranged", 1, 5, 1, 0.1, 'bullet', 30, 60, 4), TILE_SIZE)),
+        '4': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Toaster", "throwable", 5, 50, 1, 0, 'toaster', 1, 1, 4), TILE_SIZE)),
+        '5': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Stun Grenade", "ranged", 0, 70, 1, 0, 'stun', 2, 2, 2), TILE_SIZE)),
+        '6': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Explosive Charge", "explosive", 15, 20, 1, 0, 'charge', 1, 1, 5), TILE_SIZE)),
+        '7': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Shield", "defense", 0, 0, 0, 0, 'none', 1, 1, 10), TILE_SIZE)),
+        '8': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Sniper", "ranged", 10, 120, 1, 0, 'bullet', 5, 10, 8), TILE_SIZE)),
+        '9': (x, y) => pickups.push(new Pickup(x, y, 'ammo', 10, TILE_SIZE)),
+    };
+
     function initializeGame(){
-        input = new InputHandler(); world = new World(WORLD_W, WORLD_H, TILE_SIZE);
-        const copSpawnX = 15 * TILE_SIZE, groundY = 36 * TILE_SIZE;
-        const criminalSpawnX = 270 * TILE_SIZE;
-
-        cops = []; criminals = [];
-
-        for (let i = 0; i < gameTeamSize; i++) {
-            cops.push(new Player(copSpawnX - (i * 50), groundY - (TILE_SIZE * 3), TILE_SIZE, 'green', true, false, false, gameDifficulty));
-            criminals.push(new Player(criminalSpawnX - (i * 50), groundY - (TILE_SIZE * 3), TILE_SIZE, 'blue', false, true, false, gameDifficulty));
-        }
-
-        if (playerTeam === 'cops') {
-            player = cops[0];
-            player.isPlayer = true;
-            player.color = 'red';
-        } else {
-            player = criminals[0];
-            player.isPlayer = true;
-        }
-
-        hostage = new Player(criminalSpawnX + (5 * TILE_SIZE), groundY - (TILE_SIZE*3), TILE_SIZE, 'yellow', false, false, true);
-        vehicle = new Vehicle(copSpawnX + 400, groundY - (TILE_SIZE*6), TILE_SIZE);
-        chairs = [ new Chair(10 * TILE_SIZE, groundY - TILE_SIZE*8, TILE_SIZE), new Chair((criminalSpawnX + 2) * TILE_SIZE, groundY - TILE_SIZE, TILE_SIZE) ];
+        input = new InputHandler();
+        world = new World(WORLD_W, WORLD_H, TILE_SIZE);
         
-        pickups = [];
-        pickups.push(new Pickup(18 * TILE_SIZE, groundY - TILE_SIZE*5, 'weapon', new Weapon("Grenade","ranged",12,70,1,0,'grenade', 4, 4, 2), TILE_SIZE));
-        pickups.push(new Pickup(22 * TILE_SIZE, groundY - TILE_SIZE*5, 'weapon', new Weapon("Shotgun","ranged",2,40,3,0.2,'bullet',8,16, 6), TILE_SIZE));
-        pickups.push(new Pickup(12 * TILE_SIZE, groundY - TILE_SIZE * 8, 'weapon', new Weapon("SMG", "ranged", 1, 5, 1, 0.1, 'bullet', 30, 60, 4), TILE_SIZE));
-        pickups.push(new Pickup(14 * TILE_SIZE, groundY - TILE_SIZE * 11, 'weapon', new Weapon("Toaster", "throwable", 5, 50, 1, 0, 'toaster', 1, 1, 4), TILE_SIZE));
-        pickups.push(new Pickup(16 * TILE_SIZE, groundY - TILE_SIZE * 14, 'weapon', new Weapon("Stun Grenade", "ranged", 0, 70, 1, 0, 'stun', 2, 2, 2), TILE_SIZE));
-        pickups.push(new Pickup(6 * TILE_SIZE, groundY - TILE_SIZE * 16, 'weapon', new Weapon("Explosive Charge", "explosive", 15, 20, 1, 0, 'charge', 1, 1, 5), TILE_SIZE));
-        pickups.push(new Pickup(14 * TILE_SIZE, groundY - TILE_SIZE * 11, 'weapon', new Weapon("Shield", "defense", 0, 0, 0, 0, 'none', 1, 1, 10), TILE_SIZE));
-        pickups.push(new Pickup(vehicle.x + TILE_SIZE * 5, groundY - TILE_SIZE, 'weapon', new Weapon("Sniper", "ranged", 10, 120, 1, 0, 'bullet', 5, 10, 8), TILE_SIZE));
-        pickups.push(new Pickup(vehicle.x + 40, groundY - TILE_SIZE, 'ammo', 10, TILE_SIZE));
+        cops = []; criminals = []; chairs = []; pickups = []; player = null; hostage = null; vehicle = null;
 
-        allEntities = [vehicle, hostage, ...chairs, ...cops, ...criminals];
+        let copSpawnCount = 0;
+        let criminalSpawnCount = 0;
+
+        for (let y = 0; y < LEVEL_DATA.length; y++) {
+            for (let x = 0; x < LEVEL_DATA[y].length; x++) {
+                const char = LEVEL_DATA[y][x];
+                const spawnFn = ENTITY_KEY[char];
+                if (spawnFn) {
+                    let canSpawn = true;
+                    if (char === 'C') {
+                        if (copSpawnCount >= gameTeamSize) canSpawn = false;
+                        else copSpawnCount++;
+                    } else if (char === 'R') {
+                        if (criminalSpawnCount >= gameTeamSize) canSpawn = false;
+                        else criminalSpawnCount++;
+                    }
+                    
+                    if(canSpawn) spawnFn(x * TILE_SIZE, y * TILE_SIZE);
+                }
+            }
+        }
+        
+        world.generateFromLevelData(LEVEL_DATA, TILE_KEY);
+
+        allEntities = [ ...cops, ...criminals];
+        if (hostage) allEntities.push(hostage);
+        if (vehicle) allEntities.push(vehicle);
+        if (chairs.length > 0) allEntities.push(...chairs);
+
         projectiles = []; throwableProjectiles = []; explosions = []; smokeClouds = []; stunClouds = []; isMouseDown = false; shootTimer = 0; camera = new Camera(canvas);
         gameStartTime = Date.now();
     }
@@ -1030,6 +1060,10 @@ document.addEventListener('DOMContentLoaded', ()=> {
     }
 
     function gameLoop(){
+        if (!player) {
+             showGameOverScreen("Initialization Error", "Player character could not be created. Check map data for spawn points.");
+             return;
+        }
         const gameTime = (Date.now() - gameStartTime) / 1000;
         if(shootTimer > 0) shootTimer--;
         const worldMouseX = (mousePos.x - canvas.width/2)/camera.zoom + camera.x, worldMouseY = (mousePos.y - canvas.height/2)/camera.zoom + camera.y;
@@ -1071,8 +1105,8 @@ document.addEventListener('DOMContentLoaded', ()=> {
         if(input.wasKeyJustPressed('v') && player.health > 0){ 
             if (player.isInVehicle) { vehicle.eject(player.vehicleRole); }
             else {
-                if (player.isCop && criminals.every(c => c.health <= 0) && Math.hypot((player.x+player.width/2)-(hostage.x+hostage.width/2), (player.y+player.height/2)-(hostage.y+hostage.height/2)) < TILE_SIZE * 3) { hostage.isRescued = true; }
-                else if(Math.hypot((player.x+player.width/2)-(vehicle.x+vehicle.width/2),(player.y+player.height/2)-(vehicle.y+vehicle.height/2)) < vehicle.width*1.2) { 
+                if (hostage && player.isCop && criminals.every(c => c.health <= 0) && Math.hypot((player.x+player.width/2)-(hostage.x+hostage.width/2), (player.y+player.height/2)-(hostage.y+hostage.height/2)) < TILE_SIZE * 3) { hostage.isRescued = true; }
+                else if(vehicle && Math.hypot((player.x+player.width/2)-(vehicle.x+vehicle.width/2),(player.y+player.height/2)-(vehicle.y+vehicle.height/2)) < vehicle.width*1.2) { 
                     if (player.x < vehicle.x + vehicle.width/2 && !vehicle.driver) { player.vehicleRole = 'driver'; vehicle.driver = player; } 
                     else if (player.x >= vehicle.x + vehicle.width/2 && !vehicle.gunner) { player.vehicleRole = 'gunner'; vehicle.gunner = player; }
                 } 
@@ -1080,27 +1114,31 @@ document.addEventListener('DOMContentLoaded', ()=> {
         }
         if(!player.isInVehicle){ if(input.wasKeyJustPressed('q'))player.cycleWeapon(-1); if(input.wasKeyJustPressed('e'))player.cycleWeapon(1); }
         
-        allEntities = [vehicle, hostage, ...chairs, ...cops, ...criminals];
+        const currentAllEntities = [...cops, ...criminals];
+        if (hostage) currentAllEntities.push(hostage);
+        if (vehicle) currentAllEntities.push(vehicle);
+        if (chairs.length > 0) currentAllEntities.push(...chairs);
+
         const gameContext = { player, cops, criminals };
-        allEntities.forEach(e => e.update(input, world, gameContext, projectiles, smokeClouds, pickups, {x: worldMouseX, y: worldMouseY}, throwableProjectiles));
+        currentAllEntities.forEach(e => e.update(input, world, gameContext, projectiles, smokeClouds, pickups, {x: worldMouseX, y: worldMouseY}, throwableProjectiles));
         pickups.forEach(p => p.update(world));
-        throwableProjectiles.forEach(p => p.update(world, allEntities, newExplosions, smokeClouds, stunClouds, player));
-        projectiles.forEach(p => p.update(world, allEntities, pickups, newExplosions, throwableProjectiles));
+        throwableProjectiles.forEach(p => p.update(world, currentAllEntities, newExplosions, smokeClouds, stunClouds, player));
+        projectiles.forEach(p => p.update(world, currentAllEntities, pickups, newExplosions, throwableProjectiles));
         explosions.push(...newExplosions);
-        [...explosions, ...smokeClouds, ...stunClouds].forEach(o => o.update(allEntities));
+        [...explosions, ...smokeClouds, ...stunClouds].forEach(o => o.update(currentAllEntities));
         
         projectiles = projectiles.filter(p => p.active); pickups = pickups.filter(p => !p.collected); throwableProjectiles = throwableProjectiles.filter(p => p.active); explosions = explosions.filter(e => e.active); smokeClouds = smokeClouds.filter(s => s.active); stunClouds = stunClouds.filter(s => s.active);
         cops = cops.filter(c => c.health > 0); criminals = criminals.filter(c => c.health > 0);
         
         if (playerTeam === 'cops') {
-            if (hostage.isRescued) { showWinScreen("Hostage Rescued!", gameTime); return; }
+            if (hostage && hostage.isRescued) { showWinScreen("Hostage Rescued!", gameTime); return; }
             if (!cops.includes(player)) { showGameOverScreen("You Were Killed!", "The cops have failed."); return; }
-            if (hostage.health <= 0) { showGameOverScreen("Hostage Killed!", "The hostage is collateral damage."); return; }
+            if (hostage && hostage.health <= 0) { showGameOverScreen("Hostage Killed!", "The hostage is collateral damage."); return; }
         } else {
             if (cops.length === 0) { showWinScreen("Cops Eliminated!", gameTime); return; }
             if (!criminals.includes(player)) { showGameOverScreen("You Were Killed!", "The criminals have failed."); return; }
             if (criminals.length === 0 && player.health > 0) { showGameOverScreen("Team Wiped!", "Your entire team was eliminated."); return; }
-            if (hostage.health <= 0) { showGameOverScreen("Hostage Killed!", "You failed to protect the asset."); return; }
+            if (hostage && hostage.health <= 0) { showGameOverScreen("Hostage Killed!", "You failed to protect the asset."); return; }
         }
 
         const cameraTarget = player.isInVehicle ? vehicle : player;
@@ -1110,7 +1148,7 @@ document.addEventListener('DOMContentLoaded', ()=> {
         ctx.translate(canvas.width/2, canvas.height/2); ctx.scale(camera.zoom, camera.zoom);
         ctx.translate(-Math.floor(camera.x), -Math.floor(camera.y));
         world.draw(ctx);
-        [...cops, ...criminals, vehicle, hostage, ...chairs].sort((a,b) => (a.y + (a.height||0)) - (b.y + (b.height||0))).forEach(e => e.draw(ctx));
+        currentAllEntities.sort((a,b) => (a.y + (a.height||0)) - (b.y + (b.height||0))).forEach(e => e.draw(ctx));
         projectiles.forEach(p => p.draw(ctx)); throwableProjectiles.forEach(p => p.draw(ctx)); pickups.forEach(pu => pu.draw(ctx)); explosions.forEach(e => e.draw(ctx)); smokeClouds.forEach(s => s.draw(ctx)); stunClouds.forEach(s => s.draw(ctx));
         ctx.restore();
         drawCrosshair(ctx); updateUI(gameTime);
