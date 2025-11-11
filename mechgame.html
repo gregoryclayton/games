@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Mech Game - Vehicle Fix</title>
+    <title>Mech Game - Team Size Update</title>
     <style>
         body { margin:0; background:#111; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:white; }
         canvas { image-rendering: pixelated; background:#87CEEB; border:2px solid #222; cursor:none; }
@@ -19,7 +19,7 @@
         .game-ui { position:absolute; z-index:20; padding:8px 12px; color:white; background:rgba(0,0,0,0.4); border-radius:6px; }
         #weaponUI { top:60px; left:20px; }
         #timerUI { top:20px; right:20px; font-size: 1.5rem; }
-        #difficultyContainer, #teamSelection { margin-top:2rem; }
+        #difficultyContainer, #teamSelection, #teamSizeSelection { margin-top:2rem; }
     </style>
 </head>
 <body>
@@ -27,8 +27,15 @@
         <h1>Mech Game</h1>
         <button id="quickGameButton" class="menu-button">Quick Game</button>
         <div id="teamSelection" class="hidden">
+            <h3>Choose Your Team</h3>
             <button id="copsButton" class="menu-button">Play as Cops</button>
             <button id="criminalsButton" class="menu-button">Play as Criminals</button>
+        </div>
+        <div id="teamSizeSelection" class="hidden">
+            <h3>Choose Team Size</h3>
+            <button id="size1v1" class="menu-button">1 vs 1</button>
+            <button id="size2v2" class="menu-button">2 vs 2</button>
+            <button id="size3v3" class="menu-button">3 vs 3</button>
         </div>
         <div id="difficultyContainer">
             <label for="difficultySlider">AI Difficulty: <span id="difficultyValue">3</span></label><br>
@@ -60,11 +67,11 @@
 <script>
 /*
   mechgame.html - Complete version with all features:
-  - BUGFIX: Fixed a game freeze caused by an infinite loop when entering the driver's seat.
-  - BUGFIX: Camera now correctly targets the vehicle when the player is in any seat.
+  - NEW: Player can select team size (1v1, 2v2, 3v3) after choosing a team.
+  - NEW: Game dynamically spawns units based on the selected team size.
+  - BUGFIX: Removed dynamic camera zoom for vehicle to prevent game-freezing infinite loop.
   - UPDATE: Vehicle spawn position adjusted to avoid structures.
   - UPDATE: Vehicle is now larger and has clear visual areas for driver and gunner roles.
-  - NEW: Player can choose to play as "Cops" or "Criminals" from the main menu.
 */
 
 class InputHandler {
@@ -713,12 +720,14 @@ class Camera {
         const currentWeapon = player.getCurrentWeapon();
         const isScoped = !player.isInVehicle && currentWeapon && currentWeapon.name === 'Sniper';
         
-        if (isScoped) { baseZoom = 0.7; } 
-        else {
-            const speedSource = player.vehicleRole === 'driver' ? vehicle : targetEntity;
-            const sprintMultiplier = (speedSource instanceof Player) ? speedSource.sprintMultiplier : 1;
-            const maxSprintSpeed = speedSource.maxSpeed * sprintMultiplier;
-            const speedPercent = Math.min(Math.abs(speedSource.vx) / maxSprintSpeed, 1) || 0;
+        if (isScoped) { 
+            baseZoom = 0.7; 
+        } else if (player.isInVehicle) {
+            baseZoom = 0.9; // Simplified zoom for vehicle
+        } else {
+            const sprintMultiplier = targetEntity.sprintMultiplier || 1;
+            const maxSprintSpeed = targetEntity.maxSpeed * sprintMultiplier;
+            const speedPercent = Math.min(Math.abs(targetEntity.vx) / maxSprintSpeed, 1) || 0;
             const speedZoom = 1.0 - (speedPercent * 0.15);
             baseZoom = Math.min(baseZoom, speedZoom);
         }
@@ -732,8 +741,9 @@ class Camera {
 
 document.addEventListener('DOMContentLoaded', ()=> {
     const mainMenu = document.getElementById('mainMenu'), winScreen = document.getElementById('winScreen'), gameOverScreen = document.getElementById('gameOverScreen');
-    const quickGameButton = document.getElementById('quickGameButton'), teamSelection = document.getElementById('teamSelection');
+    const quickGameButton = document.getElementById('quickGameButton'), teamSelection = document.getElementById('teamSelection'), teamSizeSelection = document.getElementById('teamSizeSelection');
     const copsButton = document.getElementById('copsButton'), criminalsButton = document.getElementById('criminalsButton');
+    const size1v1 = document.getElementById('size1v1'), size2v2 = document.getElementById('size2v2'), size3v3 = document.getElementById('size3v3');
     const winMainMenuButton = document.getElementById('winMainMenuButton'), gameOverMainMenuButton = document.getElementById('gameOverMainMenuButton');
     const leaderboardList = document.getElementById('leaderboard'), finalTimeDisplay = document.getElementById('finalTime');
     const winMessage = document.getElementById('winMessage'), gameOverMessage = document.getElementById('gameOverMessage'), gameOverReason = document.getElementById('gameOverReason');
@@ -745,38 +755,32 @@ document.addEventListener('DOMContentLoaded', ()=> {
     canvas.width = 1280; canvas.height = 720;
     
     let input, world, player, cops, criminals, vehicle, hostage, chairs, camera, allEntities, projectiles, mousePos = {x:0, y:0}, isMouseDown, shootTimer, pickups, explosions, smokeClouds, stunClouds, throwableProjectiles;
-    let animationFrameId, gameStartTime, gameDifficulty = 3, playerTeam = 'cops';
+    let animationFrameId, gameStartTime, gameDifficulty = 3, playerTeam = 'cops', gameTeamSize = 2;
 
     function initializeGame(){
         input = new InputHandler(); world = new World(WORLD_W, WORLD_H, TILE_SIZE);
         const copSpawnX = 15 * TILE_SIZE, groundY = Math.floor(WORLD_H * 0.6) * TILE_SIZE;
-        const criminalSpawnX = WORLD_W - 15 - 20;
+        const criminalSpawnX = WORLD_W - 25;
 
         cops = []; criminals = [];
-        
-        if (playerTeam === 'cops') {
-            player = new Player(copSpawnX, groundY - (16*3), TILE_SIZE, 'red', true, false, false, gameDifficulty);
-            cops.push(player);
-            cops.push(new Player(copSpawnX - 50, groundY - (16*3), TILE_SIZE, 'green', true, false, false, gameDifficulty));
 
-            criminals.push(new Player((criminalSpawnX + 10) * TILE_SIZE, groundY - (16*3), TILE_SIZE, 'blue', false, true, false, gameDifficulty));
-            criminals.push(new Player((criminalSpawnX + 7) * TILE_SIZE, groundY - TILE_SIZE, TILE_SIZE, 'blue', false, true, false, gameDifficulty));
-            criminals.push(new Player((criminalSpawnX + 13) * TILE_SIZE, groundY - TILE_SIZE, TILE_SIZE, 'blue', false, true, false, gameDifficulty));
-            criminals[1].weapons = [new Weapon("Shotgun","ranged",2,40,3,0.2,'bullet',8,16, 6)];
-            criminals[2].weapons = [new Weapon("SMG", "ranged", 1, 5, 1, 0.1, 'bullet', 30, 60, 4)];
-        } else { // playerTeam === 'criminals'
-            player = new Player((criminalSpawnX + 10) * TILE_SIZE, groundY - (16*3), TILE_SIZE, 'blue', false, true, false, gameDifficulty);
-            criminals.push(player);
-            criminals.push(new Player((criminalSpawnX + 7) * TILE_SIZE, groundY - TILE_SIZE, TILE_SIZE, 'blue', false, true, false, gameDifficulty));
-            criminals.push(new Player((criminalSpawnX + 13) * TILE_SIZE, groundY - TILE_SIZE, TILE_SIZE, 'blue', false, true, false, gameDifficulty));
-            criminals[1].weapons = [new Weapon("Shotgun","ranged",2,40,3,0.2,'bullet',8,16, 6)];
-            
-            cops.push(new Player(copSpawnX, groundY - (16*3), TILE_SIZE, 'red', true, false, false, gameDifficulty));
-            cops.push(new Player(copSpawnX - 50, groundY - (16*3), TILE_SIZE, 'green', true, false, false, gameDifficulty));
+        for (let i = 0; i < gameTeamSize; i++) {
+            const copSpawnOffset = i * 50;
+            const criminalSpawnOffset = i * 50;
+            cops.push(new Player(copSpawnX - copSpawnOffset, groundY - (TILE_SIZE * 3), TILE_SIZE, 'green', true, false, false, gameDifficulty));
+            criminals.push(new Player((criminalSpawnX - criminalSpawnOffset) * TILE_SIZE, groundY - (TILE_SIZE * 3), TILE_SIZE, 'blue', false, true, false, gameDifficulty));
         }
-        player.isPlayer = true;
 
-        hostage = new Player((criminalSpawnX + 5) * TILE_SIZE, groundY - (16*3), TILE_SIZE, 'yellow', false, false, true);
+        if (playerTeam === 'cops') {
+            player = cops[0];
+            player.isPlayer = true;
+            player.color = 'red';
+        } else { // playerTeam === 'criminals'
+            player = criminals[0];
+            player.isPlayer = true;
+        }
+
+        hostage = new Player((criminalSpawnX + 5) * TILE_SIZE, groundY - (TILE_SIZE*3), TILE_SIZE, 'yellow', false, false, true);
         vehicle = new Vehicle(copSpawnX + 400, groundY - (TILE_SIZE*6), TILE_SIZE);
         chairs = [ new Chair(10 * TILE_SIZE, groundY - TILE_SIZE*8, TILE_SIZE), new Chair((criminalSpawnX + 2) * TILE_SIZE, groundY - TILE_SIZE, TILE_SIZE) ];
         
@@ -803,11 +807,11 @@ document.addEventListener('DOMContentLoaded', ()=> {
         document.querySelectorAll('.game-ui, #restartButton').forEach(el => el.classList.add('hidden'));
         quickGameButton.classList.remove('hidden');
         teamSelection.classList.add('hidden');
+        teamSizeSelection.classList.add('hidden');
         displayLeaderboard();
     }
 
-    function startGame(team) {
-        playerTeam = team;
+    function startGame() {
         mainMenu.classList.add('hidden');
         canvas.classList.remove('hidden');
         document.querySelectorAll('.game-ui, #restartButton').forEach(el => el.classList.remove('hidden'));
@@ -860,8 +864,25 @@ document.addEventListener('DOMContentLoaded', ()=> {
         quickGameButton.classList.add('hidden');
         teamSelection.classList.remove('hidden');
     });
-    copsButton.addEventListener('click', () => startGame('cops'));
-    criminalsButton.addEventListener('click', () => startGame('criminals'));
+
+    function selectTeam(team) {
+        playerTeam = team;
+        teamSelection.classList.add('hidden');
+        teamSizeSelection.classList.remove('hidden');
+    }
+
+    copsButton.addEventListener('click', () => selectTeam('cops'));
+    criminalsButton.addEventListener('click', () => selectTeam('criminals'));
+
+    function selectTeamSize(size) {
+        gameTeamSize = size;
+        startGame();
+    }
+
+    size1v1.addEventListener('click', () => selectTeamSize(1));
+    size2v2.addEventListener('click', () => selectTeamSize(2));
+    size3v3.addEventListener('click', () => selectTeamSize(3));
+
     restartButton.addEventListener('click', initializeGame);
     winMainMenuButton.addEventListener('click', showMainMenu);
     gameOverMainMenuButton.addEventListener('click', showMainMenu);
@@ -958,13 +979,12 @@ document.addEventListener('DOMContentLoaded', ()=> {
         // --- Win/Loss Conditions ---
         if (playerTeam === 'cops') {
             if (hostage.isRescued) { showWinScreen("Hostage Rescued!", gameTime); return; }
-            if (cops.length === 0) { showGameOverScreen("Team Wiped!", "All cops were eliminated."); return; }
             if (!cops.includes(player)) { showGameOverScreen("You Were Killed!", "The cops have failed."); return; }
             if (hostage.health <= 0) { showGameOverScreen("Hostage Killed!", "The hostage is collateral damage."); return; }
         } else { // playerTeam === 'criminals'
             if (cops.length === 0) { showWinScreen("Cops Eliminated!", gameTime); return; }
-            if (criminals.length === 0) { showGameOverScreen("Team Wiped!", "Your entire team was eliminated."); return; }
             if (!criminals.includes(player)) { showGameOverScreen("You Were Killed!", "The criminals have failed."); return; }
+            if (criminals.length === 0 && player.health > 0) { showGameOverScreen("Team Wiped!", "Your entire team was eliminated."); return; }
             if (hostage.health <= 0) { showGameOverScreen("Hostage Killed!", "You failed to protect the asset."); return; }
         }
 
@@ -975,7 +995,7 @@ document.addEventListener('DOMContentLoaded', ()=> {
         ctx.translate(canvas.width/2, canvas.height/2); ctx.scale(camera.zoom, camera.zoom);
         ctx.translate(-Math.floor(camera.x), -Math.floor(camera.y));
         world.draw(ctx);
-        [...cops, ...criminals, vehicle, hostage, ...chairs].sort((a,b) => (a.y + a.height) - (b.y + b.height)).forEach(e => e.draw(ctx));
+        [...cops, ...criminals, vehicle, hostage, ...chairs].sort((a,b) => (a.y + (a.height||0)) - (b.y + (b.height||0))).forEach(e => e.draw(ctx));
         projectiles.forEach(p => p.draw(ctx)); throwableProjectiles.forEach(p => p.draw(ctx)); pickups.forEach(pu => pu.draw(ctx)); explosions.forEach(e => e.draw(ctx)); smokeClouds.forEach(s => s.draw(ctx)); stunClouds.forEach(s => s.draw(ctx));
         ctx.restore();
         drawCrosshair(ctx); updateUI(gameTime);
