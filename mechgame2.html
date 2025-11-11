@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Mech Game - Full Map Editor</title>
+    <title>Mech Game - Item Respawns</title>
     <style>
         body { margin:0; background:#111; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:white; }
         canvas { image-rendering: pixelated; background:#87CEEB; border:2px solid #222; cursor:none; }
@@ -21,7 +21,6 @@
         #timerUI { top:20px; right:20px; font-size: 1.5rem; }
         #difficultyContainer, #teamSelection, #teamSizeSelection { margin-top:2rem; }
     </style>
-    <script src="levels.js"></script>
 </head>
 <body>
     <div id="mainMenu">
@@ -67,9 +66,9 @@
 
 <script>
 /*
-  mechgame.html - Main Game Logic
-  - Loads level data and entity definitions from levels.js.
-  - Contains core game classes and the main game loop.
+  mechgame.html - Item Respawns
+  - FEATURE: Pickups (weapons, helmets) now respawn 30 seconds after being collected.
+  - REFACTOR: Modified the Pickup class and collection logic to handle the new respawn timer system.
 */
 
 class InputHandler {
@@ -209,12 +208,30 @@ class Projectile {
                 const speed = Math.hypot(this.vx, this.vy) * 0.8; let angle = Math.atan2(this.vy, this.vx) + (Math.random() - 0.5) * 0.2; this.vx = Math.cos(angle) * speed; this.vy = Math.sin(angle) * speed;
             } else { world.damageTile(tx,ty,this.damage, newExplosions, entities); this.active = false; return; }
         }
-        for(const pu of pickups){ if(pu.collected || pu.health <= 0) continue; if(this.x >= pu.x && this.x <= pu.x + pu.width && this.y >= pu.y && this.y <= pu.y + pu.height){ pu.health -= this.damage; if(pu.health <= 0) pu.collected = true; this.active = false; return; } }
+        for(const pu of pickups){ if(pu.collected || pu.health <= 0) continue; if(this.x >= pu.x && this.x <= pu.x + pu.width && this.y >= pu.y && this.y <= pu.y + pu.height){ pu.health -= this.damage; if(pu.health <= 0) pu.collect(); this.active = false; return; } }
         for(const t of throwableProjectiles){ if(!t.active || t.health <= 0 || !t.ricochetChance) continue; if(this.x >= t.x && this.x <= t.x + t.width && this.y >= t.y && this.y <= t.y + t.height){ if(this.ricochetCount<3&&Math.random()<t.ricochetChance){ this.vx*=-1; } else { t.health -= this.damage; if(t.health <= 0) t.active = false; } this.active = false; return; } }
         for(const e of entities){
             if(!e || e.health<=0 || (this.firedBy === e && this.ricochetCount === 0)) continue;
             
             if(this.x > e.x && this.x < e.x + e.width && this.y > e.y && this.y < e.y + e.height){
+                // HEADSHOT CHECK FIRST
+                if(typeof e.getHeadRect === 'function'){
+                    const hr = e.getHeadRect();
+                    if(hr && this.x >= hr.x && this.x <= hr.x + hr.w && this.y >= hr.y && this.y <= hr.y + hr.h){
+                        if (e.hasHelmet) {
+                            e.hasHelmet = false;
+                            const helmetPickup = new Pickup(e.x, e.y - e.headRadius, 'helmet', null, e.TILE_SIZE);
+                            helmetPickup.vx = this.vx * 0.1; helmetPickup.vy = -5;
+                            pickups.push(helmetPickup);
+                        } else {
+                            e.health = 0; // Lethal headshot
+                        }
+                        this.active = false;
+                        return; // Stop processing after a headshot
+                    }
+                }
+                
+                // RICOCHET or BODY DAMAGE
                 if (this.ricochetCount < 3 && e.ricochetChance && Math.random() < e.ricochetChance) {
                     this.ricochetCount++; this.firedBy = null; e.damage(this.damage); this.damage = Math.max(1, Math.floor(this.damage * 0.7));
                     const pCenterX = prevX, pCenterY = prevY, eCenterX = e.x + e.width/2, eCenterY = e.y + e.height/2;
@@ -225,14 +242,9 @@ class Projectile {
                     if (collisionSide === 'left' || collisionSide === 'right') { this.vx *= -1; this.x = prevX; } else if (collisionSide === 'top' || collisionSide === 'bottom') { this.vy *= -1; this.y = prevY; } else { this.vx *= -1; this.vy *= -1; }
                     return; 
                 } else {
-                    if(typeof e.getHeadRect === 'function'){
-                        const hr = e.getHeadRect();
-                        if(hr && this.x >= hr.x && this.x <= hr.x + hr.w && this.y >= hr.y && this.y <= hr.y + hr.h){
-                            if (e.hasHelmet) { e.hasHelmet = false; const helmetPickup = new Pickup(e.x, e.y - e.headRadius, 'helmet', null, e.TILE_SIZE); helmetPickup.vx = this.vx * 0.1; helmetPickup.vy = -5; pickups.push(helmetPickup); } else { e.health = 0; }
-                            this.active = false; return;
-                        }
-                    }
-                    e.damage(this.damage); this.active = false; return;
+                    e.damage(this.damage); 
+                    this.active = false; 
+                    return;
                 }
             }
         }
@@ -362,7 +374,7 @@ class ExplosiveCharge extends PhysicsEntity {
     detonate(explosions, world, entities, owner) {
         if (!this.active) return;
         this.active = false;
-        explosions.push(new Explosion(this.x + this.width / 2, this.y + this.height / 2, this.explosionRadius, this.damage, world, entities, explosions));
+        explosions.push(new Explosion(this.x + this.width / 2, this.y + this.height / 2, this.explosionRadius, this.damage, world, entities, []));
         if (owner) owner.activeCharge = null;
     }
     draw(ctx) {
@@ -417,7 +429,7 @@ class Player extends PhysicsEntity {
         this.currentWeaponIndex = 0; this.maxHealth = 10; this.health = this.maxHealth;
         this.shootTimer = 0; this.patrolDir = 1; this.patrolTimer = 120;
         this.shield = null; this.activeCharge = null; this.stunTimer = 0; this.totalWeight = 0;
-        this.aimAngle = 0; this.isPlayer = false;
+        this.aimAngle = 0; this.isPlayer = false; this.playerIndex = 0;
         this.followDistance = 100 + Math.random() * 80;
         
         if (isCop || isCriminal) {
@@ -437,10 +449,19 @@ class Player extends PhysicsEntity {
             if (w.maxAmmo > 1 && w.ammo !== Infinity) { this.totalWeight += (w.weight * w.ammo); } else { this.totalWeight += w.weight; }
         });
     }
-    getHeadRect(){ if(this.isHostage) return null; const headX = this.x + this.width / 2 - this.headRadius; const bodyDrawY = this.y; const headY = bodyDrawY - this.headRadius * 1.8 + (this.originalHeight - this.height); return { x: headX, y: headY, w: this.headRadius * 2, h: this.headRadius * 2 }; }
-    checkForWallSlide(world){ if((this.isCop || this.isCriminal) && !this.isPlayer || this.isHostage || this.isOnGround || this.vy < 0){ this.isWallSliding=false; return; } this.isWallSliding=false; this.wallSlideDirection=0; const leftTileX = Math.floor((this.x - 1) / this.TILE_SIZE), rightTileX = Math.floor((this.x + this.width) / this.TILE_SIZE), topTileY = Math.floor(this.y / this.TILE_SIZE), bottomTileY = Math.floor((this.y + this.height - 1) / this.TILE_SIZE); for(let ty = topTileY; ty <= bottomTileY; ty++){ if(world.getTile(leftTileX, ty) && world.getTile(leftTileX, ty).type !== 'platform' && this.x <= (leftTileX+1)*this.TILE_SIZE + 2){ this.isWallSliding = true; this.wallSlideDirection = -1; break; } if(world.getTile(rightTileX, ty) && world.getTile(rightTileX, ty).type !== 'platform' && (this.x + this.width) >= rightTileX*this.TILE_SIZE - 2){ this.isWallSliding = true; this.wallSlideDirection = 1; break; } } }
+    getHeadRect(){ 
+        if(this.isHostage) return null; 
+        const headWidth = this.headRadius * 2.5;
+        const headHeight = this.headRadius * 3; 
+        const headX = this.x + this.width / 2 - headWidth / 2; 
+        const bodyDrawY = this.y; 
+        const headY = bodyDrawY - headHeight * 0.9 + (this.originalHeight - this.height); 
+        return { x: headX, y: headY, w: headWidth, h: headHeight }; 
+    }
+    checkForWallSlide(world){ if(this.isPlayer && !this.isOnGround && this.vy > 0){ this.isWallSliding=false; this.wallSlideDirection=0; const leftTileX = Math.floor((this.x - 1) / this.TILE_SIZE), rightTileX = Math.floor((this.x + this.width) / this.TILE_SIZE), topTileY = Math.floor(this.y / this.TILE_SIZE), bottomTileY = Math.floor((this.y + this.height - 1) / this.TILE_SIZE); for(let ty = topTileY; ty <= bottomTileY; ty++){ if(world.getTile(leftTileX, ty) && world.getTile(leftTileX, ty).type !== 'platform' && this.x <= (leftTileX+1)*this.TILE_SIZE + 2){ this.isWallSliding = true; this.wallSlideDirection = -1; break; } if(world.getTile(rightTileX, ty) && world.getTile(rightTileX, ty).type !== 'platform' && (this.x + this.width) >= rightTileX*this.TILE_SIZE - 2){ this.isWallSliding = true; this.wallSlideDirection = 1; break; } } } else { this.isWallSliding = false; } }
     handleDucking(input, world){
-        const wantsToDuck = input.isKeyPressed('s') || input.isKeyPressed('arrowdown');
+        const duckKey = this.playerIndex === 1 ? 's' : 'arrowdown';
+        const wantsToDuck = input.isKeyPressed(duckKey);
         if (wantsToDuck && this.isOnGround && this.lastOnPlatform) { this.y += 2; this.isOnGround = false; return; }
         const heightBefore = this.height;
         if(wantsToDuck){ if(!this.isDucking){ this.height = this.duckHeight; this.isDucking = true; if(!this.isOnGround) { this.vx *= 0.5; } }
@@ -452,19 +473,31 @@ class Player extends PhysicsEntity {
         if (this.height !== heightBefore) { this.y += heightBefore - this.height; }
     }
     handlePlayerInput(input){
-        let moveDir = 0; if (input.isKeyPressed('a') || input.isKeyPressed('arrowleft')) moveDir = -1; else if (input.isKeyPressed('d') || input.isKeyPressed('arrowright')) moveDir = 1;
+        const leftKey = this.playerIndex === 1 ? 'a' : 'arrowleft';
+        const rightKey = this.playerIndex === 1 ? 'd' : 'arrowright';
+        const jumpKey = this.playerIndex === 1 ? 'w' : 'arrowup';
+        const spaceKey = this.playerIndex === 1 ? ' ' : 'arrowup';
+
+        let moveDir = 0; if (input.isKeyPressed(leftKey)) moveDir = -1; else if (input.isKeyPressed(rightKey)) moveDir = 1;
         this.calculateWeight();
         const weightPenalty = Math.max(0.4, 1 - this.totalWeight * 0.02);
         let stunMultiplier = this.stunTimer > 0 ? 0.2 : 1;
+        const isSprinting = this.sprintTimer > 120;
+
         if(this.wallJumpLockTimer > 0){ this.wallJumpLockTimer--; } else {
-            let currentMaxSpeed = (this.sprintTimer > 120 ? this.maxSpeed*this.sprintMultiplier : this.maxSpeed) * weightPenalty;
+            let currentMaxSpeed = (isSprinting ? this.maxSpeed*this.sprintMultiplier : this.maxSpeed) * weightPenalty;
             if(this.isDucking) { currentMaxSpeed *= 0.5; }
             currentMaxSpeed *= stunMultiplier;
             if(moveDir !== 0){ if(this.recentWallJumpTimer > 0){ this.vx = moveDir * currentMaxSpeed; this.sprintTimer = Math.max(this.sprintTimer, 120); } else { this.vx += moveDir*this.acceleration*stunMultiplier*weightPenalty; if(Math.abs(this.vx) > currentMaxSpeed) this.vx = moveDir*currentMaxSpeed; } if(moveDir === this.lastMoveDirection && !this.isDucking) this.sprintTimer++; else this.sprintTimer=0;
             } else { if(!this.justLanded) { this.vx *= this.friction; if(Math.abs(this.vx) < 0.08) this.vx = 0; } this.sprintTimer = 0; } this.lastMoveDirection = moveDir;
         }
-        if((input.wasKeyJustPressed('w') || input.wasKeyJustPressed('arrowup') || input.wasKeyJustPressed(' ')) && this.stunTimer <=0){
-            if(this.isOnGround && !this.isDucking){ this.vy = -this.jumpStrength * weightPenalty; this.isOnGround=false; }
+        if((input.wasKeyJustPressed(jumpKey) || input.wasKeyJustPressed(spaceKey)) && this.stunTimer <=0){
+            if(this.isOnGround && !this.isDucking){
+                const jumpMultiplier = isSprinting ? 1.3 : 1;
+                this.vy = -this.jumpStrength * jumpMultiplier * weightPenalty;
+                if (isSprinting) { this.vx *= 1.2; }
+                this.isOnGround=false;
+            }
             else if(this.isWallSliding){ this.vy = -this.jumpStrength*0.9 * weightPenalty; this.vx = -this.wallSlideDirection * this.maxSpeed * 1.5; this.wallJumpLockTimer = this.wallJumpLockDuration; this.isWallSliding = false; this.recentWallJumpTimer = 20; }
         }
     }
@@ -547,7 +580,11 @@ class Player extends PhysicsEntity {
         
         if (this.isPlayer) {
             this.handleDucking(input, world); this.handlePlayerInput(input);
-            this.aimAngle = Math.atan2(worldMousePos.y - (this.y + this.height/2), worldMousePos.x - (this.x + this.width/2));
+            if (this.playerIndex === 1) {
+                this.aimAngle = Math.atan2(worldMousePos.y - (this.y + this.height/2), worldMousePos.x - (this.x + this.width/2));
+            } else {
+                this.aimAngle = this.lastMoveDirection === -1 ? Math.PI : 0;
+            }
         } else if (this.isHostage) {
             this.vx = 0;
         } else { 
@@ -572,7 +609,7 @@ class Player extends PhysicsEntity {
                      if(Math.hypot((this.x+this.width/2)-(pu.x+pu.width/2), (this.y+this.height/2)-(pu.y+pu.height/2)) < this.width){
                          this.weapons.push(pu.weaponData);
                          this.currentWeaponIndex = this.weapons.length - 1;
-                         pu.collected = true;
+                         pu.collect();
                          break;
                      }
                  }
@@ -602,16 +639,29 @@ class Player extends PhysicsEntity {
         if (this.stunTimer > 0 && this.stunTimer % 10 < 5) ctx.fillStyle = 'yellow';
         ctx.fillRect(this.x, this.y, this.width, this.height);
         if (this.shield) this.shield.draw(ctx);
-        if (this.health > 0 && !this.isInVehicle && this.isPlayer) { const weapon = this.getCurrentWeapon(); if (weapon && weapon.name !== 'Shield') { this.drawWeapon(ctx); } }
+        if (this.health > 0 && this.isPlayer && !this.isInVehicle) { const weapon = this.getCurrentWeapon(); if (weapon && weapon.name !== 'Shield') { this.drawWeapon(ctx); } }
         const hr = this.getHeadRect();
         const healthBarY = hr ? hr.y - 10 : this.y - 10;
         if (this.stunTimer > 0) { ctx.fillStyle = "yellow"; ctx.font = "12px sans-serif"; ctx.textAlign = "center"; ctx.fillText("STUNNED", this.x + this.width/2, healthBarY - 2); }
         if(!this.isHostage && hr){
-            ctx.save(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(hr.x + hr.w/2, hr.y + hr.h/2, hr.w/2, 0, Math.PI*2); ctx.fill();
-            ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke();
-            if(this.hasHelmet) { ctx.fillStyle = 'rgba(128,128,128,0.5)'; ctx.beginPath(); ctx.arc(hr.x + hr.w/2, hr.y + hr.h/2, hr.w/2 + 2, 0, Math.PI*2); ctx.fill(); }
+            const headDrawY = this.y - this.headRadius + (this.originalHeight - this.height);
+            ctx.save();
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(this.x + this.width / 2, headDrawY, this.headRadius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            if (this.hasHelmet) {
+                ctx.fillStyle = 'rgba(128,128,128,0.8)';
+                ctx.beginPath();
+                ctx.arc(this.x + this.width / 2, headDrawY, this.headRadius + 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
             ctx.restore();
-            if(this.health>0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, healthBarY, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, healthBarY, bw*(this.health/this.maxHealth), bh); }
+            
+            if(this.health > 0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, healthBarY, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, healthBarY, bw*(this.health/this.maxHealth), bh); }
         } else { if(this.health>0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, healthBarY, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, healthBarY, bw*(this.health/this.maxHealth), bh); } }
     }
 }
@@ -675,15 +725,32 @@ class Pickup extends PhysicsEntity {
         this.pickupType = pickupType; this.weaponData = null; this.ammoAmount = 0;
         if(pickupType === 'weapon') this.weaponData = data;
         if(pickupType === 'ammo') this.ammoAmount = data;
-        this.health = 10;
+        this.health = 10; this.maxHealth = 10;
         this.friction = 0.8;
+        this.respawnTimer = 0;
+        this.RESPAWN_TIME = 30 * 60; // 30 seconds at 60fps
+    }
+    collect() {
+        if (this.collected) return;
+        this.collected = true;
+        if (this.pickupType !== 'ammo') {
+            this.respawnTimer = this.RESPAWN_TIME;
+        }
     }
     update(world){
+        if (this.respawnTimer > 0) {
+            this.respawnTimer--;
+            if (this.respawnTimer <= 0) {
+                this.collected = false;
+                this.health = this.maxHealth;
+            }
+            return;
+        }
         if(this.collected) return; 
-        if(this.pickupType === 'ammo') return;
+        
         this.applyPhysics(world);
         if (this.isOnGround) this.vx *= this.friction;
-        if(this.y > world.height * world.TILE_SIZE + 500 || this.health <= 0) this.collected = true;
+        if(this.y > world.height * world.TILE_SIZE + 500 || this.health <= 0) this.collect();
     }
     draw(ctx){
         if(this.collected) return; ctx.save();
@@ -726,6 +793,78 @@ class Chair extends PhysicsEntity {
     }
 }
 
+const TILE_KEY = {
+    ' ': null,
+    'G': { type: 'grass',    health: 6, maxHealth: 6, ricochetChance: 0, color: '#6A9E49' },
+    'D': { type: 'dirt',     health: 6, maxHealth: 6, ricochetChance: 0, color: '#966A4A' },
+    'X': { type: 'dirt',     health: 18, maxHealth: 18, ricochetChance: 0, color: '#6e4f37' },
+    'P': { type: 'platform', health: 4, maxHealth: 4, ricochetChance: 0.1, color: '#C2B280' },
+    'L': { type: 'glass',    health: 1, maxHealth: 1, ricochetChance: 0.05, color: 'lightblue' },
+    'W': { type: 'wood',     health: 8, maxHealth: 8, ricochetChance: 0.1, color: '#A0522D' },
+    'C': { type: 'concrete', health: 25, maxHealth: 25, ricochetChance: 0.4, color: '#808080' },
+    'M': { type: 'metal',    health: 50, maxHealth: 50, ricochetChance: 0.8, color: '#A9A9A9' },
+    'B': { type: 'beam',     health: 10, maxHealth: 10, ricochetChance: 0.1, color: '#736f6e' },
+    'F': { type: 'gascan',   health: 2, maxHealth: 2, ricochetChance: 0.5, color: '#c00' },
+};
+
+const LEVEL_DATA = [
+    "                                                                                                                                                                                                                                                              ",
+    "                                                                                                                                                                                                                                                              ",
+    "                                                                                                                                                                                                                                                              ",
+    "                                                                                                                                                                                                                                                              ",
+    "                                                                                                                                                                                                                                                              ",
+    "                                                                                                                                                                                                                                                              ",
+    "      S                                                                                                                                                                                                                                                         ",
+    "                                                                                                                                                                                                                                                              ",
+    "        3                                                                                                                                                                                                                                                       ",
+    "                                                                                                                                                                                                                                                              ",
+    "          4                                                                                                                                                                                                                                                     ",
+    "                                                                                                                                                                                                                                                              ",
+    "            5                                                                                                                                                                                                                                                   ",
+    "                                                                                                                                                                                                                                                              ",
+    "   6                                                                                                                                                                                                                                                            ",
+    "                                                                                                                                                                                                                                                              ",
+    "                                                                                                                                                                                                                                                              ",
+    "                                                                                                                                                                                                                                                              ",
+    "                                                                                                                                                                                                                                                              ",
+    "                                                                                                                                                                                                                                                              ",
+    "                                                                                                                                                                                                                                                              ",
+    "      X                                                                                                                                                                                                                                                       ",
+    "      X                                                                                                                                                                                                                                                       ",
+    "      X         PP                                                                                                                                                                                                                                              ",
+    "      X                                                                                                                                                                                                                                                       ",
+    "      X                                   C                                                                                                                                                                   XXXXXXXXXXXXXXXXX                           ",
+    "      X           PP                        C C                                                                                                                                                               X             X                           ",
+    "      X                                                                                     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                                                                                 X        R    X                           ",
+    "      X                                                                                     X                               X                                                                                 X       R     X                           ",
+    "      X             PP                                                                      X                               X                                                                                 X      R H    X                           ",
+    "      X                                                                                     X              V                X                                                                                 X             X                           ",
+    "      X                                   1    2                                            X                               X                                                                                 X      S      X                           ",
+    "      X               PP                                                                    X                               X                                                                                 X             X                           ",
+    "      X                                                                                     X                               X                                                                                 X             X                           ",
+    "      X                                                                                     X                               X                                                                                 X             X                           ",
+    "      X                 PP                                                                  X                               X                                                                                 XXXXXXXXXXXXXXXXX                           ",
+    "GGGGGGXGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+];
+
 class World { 
     constructor(w,h,tileSize){ 
         this.width = w; this.height = h; this.TILE_SIZE = tileSize;
@@ -736,7 +875,6 @@ class World {
         for (let y = 0; y < levelData.length; y++) {
             for (let x = 0; x < levelData[y].length; x++) {
                 const char = levelData[y][x];
-                // Check for tile first, entity will be placed on top.
                 const tileInfo = tileKey[char];
                 if (tileInfo) {
                     this.grid[y][x] = { ...tileInfo };
@@ -799,27 +937,51 @@ document.addEventListener('DOMContentLoaded', ()=> {
     const TILE_SIZE = 16, WORLD_W = 300, WORLD_H = 60;
     canvas.width = 1280; canvas.height = 720;
     
-    let input, world, player, cops, criminals, vehicle, hostage, chairs, camera, allEntities, projectiles, mousePos = {x:0, y:0}, isMouseDown, shootTimer, pickups, explosions, smokeClouds, stunClouds, throwableProjectiles;
+    let input, world, player, player2, cops, criminals, vehicle, hostage, chairs, camera, allEntities, projectiles, mousePos = {x:0, y:0}, isMouseDown, shootTimer, pickups, explosions, smokeClouds, stunClouds, throwableProjectiles;
     let animationFrameId, gameStartTime, gameDifficulty = 3, playerTeam = 'cops', gameTeamSize = 2;
+
+    const ENTITY_KEY = {
+        'C': (x, y) => {
+            const p = new Player(x, y, TILE_SIZE, 'green', true, false, false, gameDifficulty);
+            if (playerTeam === 'cops' && !player) {
+                p.isPlayer = true; p.playerIndex = 1; p.color = 'darkblue'; player = p;
+            }
+            cops.push(p);
+        },
+        'R': (x, y) => {
+            const p = new Player(x, y, TILE_SIZE, 'red', false, true, false, gameDifficulty);
+            if (playerTeam === 'criminals' && !player) {
+                p.isPlayer = true; p.playerIndex = 1; p.color = 'darkred'; player = p;
+            }
+            criminals.push(p);
+        },
+        'H': (x, y) => { hostage = new Player(x, y, TILE_SIZE, 'yellow', false, false, true); },
+        'V': (x, y) => { vehicle = new Vehicle(x, y, TILE_SIZE); },
+        'S': (x, y) => { chairs.push(new Chair(x, y, TILE_SIZE)); },
+        '1': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Grenade", "ranged", 12, 70, 1, 0, 'grenade', 4, 4, 2), TILE_SIZE)),
+        '2': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Shotgun", "ranged", 2, 40, 3, 0.2, 'bullet', 8, 16, 6), TILE_SIZE)),
+        '3': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("SMG", "ranged", 1, 5, 1, 0.1, 'bullet', 30, 60, 4), TILE_SIZE)),
+        '4': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Toaster", "throwable", 5, 50, 1, 0, 'toaster', 1, 1, 4), TILE_SIZE)),
+        '5': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Stun Grenade", "ranged", 0, 70, 1, 0, 'stun', 2, 2, 2), TILE_SIZE)),
+        '6': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Explosive Charge", "explosive", 15, 20, 1, 0, 'charge', 1, 1, 5), TILE_SIZE)),
+        '7': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Shield", "defense", 0, 0, 0, 0, 'none', 1, 1, 10), TILE_SIZE)),
+        '8': (x, y) => pickups.push(new Pickup(x, y, 'weapon', new Weapon("Sniper", "ranged", 10, 120, 1, 0, 'bullet', 5, 10, 8), TILE_SIZE)),
+        '9': (x, y) => pickups.push(new Pickup(x, y, 'ammo', 10, TILE_SIZE)),
+    };
 
     function initializeGame(){
         input = new InputHandler();
         world = new World(WORLD_W, WORLD_H, TILE_SIZE);
         
-        let gameContext = {
-            TILE_SIZE, gameDifficulty, playerTeam,
-            cops: [], criminals: [], chairs: [], pickups: [],
-            player: null, hostage: null, vehicle: null,
-        };
-        
-        const entityKey = getEntityKey(gameContext);
+        cops = []; criminals = []; chairs = []; pickups = []; player = null; player2 = null; hostage = null; vehicle = null;
+
         let copSpawnCount = 0;
         let criminalSpawnCount = 0;
 
         for (let y = 0; y < LEVEL_DATA.length; y++) {
             for (let x = 0; x < LEVEL_DATA[y].length; x++) {
                 const char = LEVEL_DATA[y][x];
-                const spawnFn = entityKey[char];
+                const spawnFn = ENTITY_KEY[char];
                 if (spawnFn) {
                     let canSpawn = true;
                     if (char === 'C') {
@@ -829,13 +991,12 @@ document.addEventListener('DOMContentLoaded', ()=> {
                         if (criminalSpawnCount >= gameTeamSize) canSpawn = false;
                         else criminalSpawnCount++;
                     }
+                    
                     if(canSpawn) spawnFn(x * TILE_SIZE, y * TILE_SIZE);
                 }
             }
         }
         
-        ({ player, cops, criminals, hostage, vehicle, chairs, pickups } = gameContext);
-
         world.generateFromLevelData(LEVEL_DATA, TILE_KEY);
 
         allEntities = [ ...cops, ...criminals];
@@ -956,7 +1117,9 @@ document.addEventListener('DOMContentLoaded', ()=> {
             } else { uiText += 'Fist'; }
         }
         if (player.hasHelmet && !player.isInVehicle) uiText += ' (H)';
-        weaponUI.textContent = uiText;
+        weaponUI.textContent = "P1: " + uiText;
+        if(player2) { weaponUI.textContent += " | P2 Active"; }
+        else if (gameTeamSize > 1) { weaponUI.textContent += " | Press 'P' to join"; }
         timerUI.textContent = gameTime.toFixed(2);
     }
 
@@ -968,38 +1131,65 @@ document.addEventListener('DOMContentLoaded', ()=> {
         const gameTime = (Date.now() - gameStartTime) / 1000;
         if(shootTimer > 0) shootTimer--;
         const worldMouseX = (mousePos.x - canvas.width/2)/camera.zoom + camera.x, worldMouseY = (mousePos.y - canvas.height/2)/camera.zoom + camera.y;
+        
+        const currentAllEntities = [...cops, ...criminals];
+        if (hostage) currentAllEntities.push(hostage);
+        if (vehicle) currentAllEntities.push(vehicle);
+        if (chairs.length > 0) currentAllEntities.push(...chairs);
+        
         const newExplosions = [];
 
+        // P1 Shooting
         if(isMouseDown && player.stunTimer <= 0){
             if (player.vehicleRole === 'gunner' && vehicle.shootTimer <= 0) {
                 const weapon = vehicle.weapon; const launchX = vehicle.x + vehicle.width * 0.75, launchY = vehicle.y + vehicle.height/2;
                 projectiles.push(new Projectile(launchX, launchY, worldMouseX, worldMouseY, vehicle, weapon.damage, vehicle.weaponAngle - Math.atan2(worldMouseY - launchY, worldMouseX - launchX)));
                 vehicle.shootTimer = weapon.cooldown;
             }
-            else if (!player.isInVehicle && shootTimer <= 0) {
+            else if (!player.isInVehicle && player.shootTimer <= 0) {
                 const weapon = player.getCurrentWeapon();
                 if(player.health > 0 && weapon && weapon.name !== "Shield"){
                     const weaponLength = player.TILE_SIZE * 2; const launchX = player.x + player.width/2 + Math.cos(player.aimAngle) * weaponLength; const launchY = player.y + player.height/2 + Math.sin(player.aimAngle) * weaponLength;
-                    if (weapon.projectileType === 'charge') { if (player.activeCharge) { player.activeCharge.detonate(newExplosions, allEntities, player); shootTimer = weapon.cooldown; } else if (weapon.ammo > 0) { const charge = new ExplosiveCharge(launchX, launchY, Math.cos(player.aimAngle) * 15, Math.sin(player.aimAngle) * 15, weapon.damage, TILE_SIZE); throwableProjectiles.push(charge); player.activeCharge = charge; weapon.ammo--; shootTimer = weapon.cooldown; } } 
-                    else if(['grenade', 'smoke', 'stun'].includes(weapon.projectileType)) { if(weapon.ammo > 0) { throwableProjectiles.push(new ThrownGrenade(launchX, launchY, Math.cos(player.aimAngle)*15, Math.sin(player.aimAngle)*15, weapon.damage, TILE_SIZE, weapon.projectileType)); weapon.ammo--; shootTimer = weapon.cooldown; } } 
-                    else if (weapon.projectileType === 'toaster') { if(weapon.ammo > 0) { throwableProjectiles.push(new ThrownToaster(launchX, launchY, Math.cos(player.aimAngle)*20, Math.sin(player.aimAngle)*20, TILE_SIZE)); weapon.ammo--; shootTimer = weapon.cooldown; const wepIdx = player.weapons.findIndex(w => w.name === 'Toaster'); if (wepIdx > -1) { player.weapons.splice(wepIdx, 1); player.cycleWeapon(0); } } } 
-                    else if (weapon.ammo > 0) { for(let i=0;i<weapon.pellets;i++){ projectiles.push(new Projectile(launchX, launchY, worldMouseX, worldMouseY, player, weapon.damage, (Math.random()-0.5) * weapon.spread)); } if(weapon.ammo !== Infinity) weapon.ammo--; shootTimer = weapon.cooldown; }
+                    if (weapon.projectileType === 'charge') { if (player.activeCharge) { player.activeCharge.detonate(newExplosions, world, currentAllEntities, player); player.shootTimer = weapon.cooldown; } else if (weapon.ammo > 0) { const charge = new ExplosiveCharge(launchX, launchY, Math.cos(player.aimAngle) * 15, Math.sin(player.aimAngle) * 15, weapon.damage, TILE_SIZE); throwableProjectiles.push(charge); player.activeCharge = charge; weapon.ammo--; player.shootTimer = weapon.cooldown; } } 
+                    else if(['grenade', 'smoke', 'stun'].includes(weapon.projectileType)) { if(weapon.ammo > 0) { throwableProjectiles.push(new ThrownGrenade(launchX, launchY, Math.cos(player.aimAngle)*15, Math.sin(player.aimAngle)*15, weapon.damage, TILE_SIZE, weapon.projectileType)); weapon.ammo--; player.shootTimer = weapon.cooldown; } } 
+                    else if (weapon.projectileType === 'toaster') { if(weapon.ammo > 0) { throwableProjectiles.push(new ThrownToaster(launchX, launchY, Math.cos(player.aimAngle)*20, Math.sin(player.aimAngle)*20, TILE_SIZE)); weapon.ammo--; player.shootTimer = weapon.cooldown; const wepIdx = player.weapons.findIndex(w => w.name === 'Toaster'); if (wepIdx > -1) { player.weapons.splice(wepIdx, 1); player.cycleWeapon(0); } } } 
+                    else if (weapon.ammo > 0) { for(let i=0;i<weapon.pellets;i++){ projectiles.push(new Projectile(launchX, launchY, worldMouseX, worldMouseY, player, weapon.damage, (Math.random()-0.5) * weapon.spread)); } if(weapon.ammo !== Infinity) weapon.ammo--; player.shootTimer = weapon.cooldown; }
                 }
             }
         }
+        
+        // P2 Action Keys
+        if(player2 && player2.health > 0){
+             if (input.wasKeyJustPressed('/')){
+                if (player2.stunTimer <= 0 && !player2.isInVehicle && player2.shootTimer <= 0) {
+                     const weapon = player2.getCurrentWeapon();
+                     if(weapon && weapon.name !== "Shield"){
+                         const weaponLength = player2.TILE_SIZE * 2; const launchX = player2.x + player2.width/2 + Math.cos(player2.aimAngle) * weaponLength; const launchY = player2.y + player2.height/2 + Math.sin(player2.aimAngle) * weaponLength;
+                         const targetX = launchX + Math.cos(player2.aimAngle) * 100; const targetY = launchY + Math.sin(player2.aimAngle) * 100;
+                         if (weapon.projectileType === 'charge') { if (player2.activeCharge) { player2.activeCharge.detonate(newExplosions, world, currentAllEntities, player2); player2.shootTimer = weapon.cooldown; } else if (weapon.ammo > 0) { const charge = new ExplosiveCharge(launchX, launchY, Math.cos(player2.aimAngle) * 15, Math.sin(player2.aimAngle) * 15, weapon.damage, TILE_SIZE); throwableProjectiles.push(charge); player2.activeCharge = charge; weapon.ammo--; player2.shootTimer = weapon.cooldown; } }
+                         else if(['grenade', 'smoke', 'stun'].includes(weapon.projectileType)) { if(weapon.ammo > 0) { throwableProjectiles.push(new ThrownGrenade(launchX, launchY, Math.cos(player2.aimAngle)*15, Math.sin(player2.aimAngle)*15, weapon.damage, TILE_SIZE, weapon.projectileType)); weapon.ammo--; player2.shootTimer = weapon.cooldown; } }
+                         else if (weapon.projectileType === 'toaster') { if(weapon.ammo > 0) { throwableProjectiles.push(new ThrownToaster(launchX, launchY, Math.cos(player2.aimAngle)*20, Math.sin(player2.aimAngle)*20, TILE_SIZE)); weapon.ammo--; player2.shootTimer = weapon.cooldown; const wepIdx = player2.weapons.findIndex(w => w.name === 'Toaster'); if (wepIdx > -1) { player2.weapons.splice(wepIdx, 1); player2.cycleWeapon(0); } } } 
+                         else if (weapon.ammo > 0) { for(let i=0;i<weapon.pellets;i++){ projectiles.push(new Projectile(launchX, launchY, targetX, targetY, player2, weapon.damage, (Math.random()-0.5) * weapon.spread)); } if(weapon.ammo !== Infinity) weapon.ammo--; player2.shootTimer = weapon.cooldown; }
+                     }
+                }
+             }
+             if(input.wasKeyJustPressed('.')) {
+                const PICKUP_RANGE = 48; let pickedUpItem = false;
+                for(let i = pickups.length - 1; i >= 0; i--){ const pu = pickups[i]; if(pu.collected || pu.health <= 0) continue; if(Math.hypot((player2.x+player2.width/2)-(pu.x+pu.width/2), (player2.y+player2.height/2)-(pu.y+pu.height/2)) <= PICKUP_RANGE){ if(pu.pickupType === 'weapon'){ const otherWeaponsCount = player2.weapons.filter(w => w.name !== 'Pistol').length; if (otherWeaponsCount < 4) { player2.weapons.push(pu.weaponData); player2.currentWeaponIndex = player2.weapons.length - 1; pickedUpItem = true; } } else if (pu.pickupType === 'helmet' && !player2.hasHelmet) { player2.hasHelmet = true; pickedUpItem = true;} if (pickedUpItem) { pu.collect(); break; } } }
+                if(!pickedUpItem){ for (let i = throwableProjectiles.length - 1; i >= 0; i--) { const t = throwableProjectiles[i]; if (t instanceof ThrownToaster && t.active) { if(Math.hypot((player2.x+player2.width/2)-(t.x+t.width/2), (player2.y+player2.height/2)-(t.y+t.height/2)) <= PICKUP_RANGE){ const otherWeaponsCount = player2.weapons.filter(w => w.name !== 'Pistol').length; if (otherWeaponsCount < 4) { player2.weapons.push(new Weapon("Toaster", "throwable", 5, 50, 1, 0, 'toaster', 1, 1, 4)); player2.currentWeaponIndex = player2.weapons.length - 1; t.active = false; pickedUpItem = true; break; } } } } }
+                if(!pickedUpItem){ const curWeapon = player2.getCurrentWeapon(); if(curWeapon && curWeapon.name !== 'Pistol'){ const removed = player2.weapons.splice(player2.currentWeaponIndex,1)[0]; if(player2.currentWeaponIndex >= player2.weapons.length) player2.currentWeaponIndex = player2.weapons.length - 1; if(player2.currentWeaponIndex < 0) player2.currentWeaponIndex = 0; const p = new Pickup(player2.x+player2.width/2-TILE_SIZE/2, player2.y-player2.height*0.25, 'weapon', removed, TILE_SIZE); p.vx = (player2.vx || (player2.lastMoveDirection*2) || 2); p.vy = -7; pickups.push(p); } }
+             }
+             if(input.wasKeyJustPressed(',')) { if (player2.isInVehicle) { vehicle.eject(player2.vehicleRole); } else { if(vehicle && Math.hypot((player2.x+player2.width/2)-(vehicle.x+vehicle.width/2),(player2.y+player2.height/2)-(vehicle.y+vehicle.height/2)) < vehicle.width*1.2) { if (player2.x < vehicle.x + vehicle.width/2 && !vehicle.driver) { player2.vehicleRole = 'driver'; vehicle.driver = player2; } else if (player2.x >= vehicle.x + vehicle.width/2 && !vehicle.gunner) { player2.vehicleRole = 'gunner'; vehicle.gunner = player2; } } } }
+             if(input.wasKeyJustPressed('m') && player2.hasHelmet) { player2.hasHelmet = false; const helmetPickup = new Pickup(player2.x+player2.width/2-TILE_SIZE/2, player2.y-player2.height*0.25, 'helmet', null, TILE_SIZE); helmetPickup.vx = (player2.vx || (player2.lastMoveDirection*2) || 2); helmetPickup.vy = -7; pickups.push(helmetPickup); }
+             if(input.wasKeyJustPressed('k')) player2.cycleWeapon(-1);
+             if(input.wasKeyJustPressed('l')) player2.cycleWeapon(1);
+        }
+
+        // P1 Action Keys
         if(input.wasKeyJustPressed('c') && player.health > 0 && !player.isInVehicle){
             const PICKUP_RANGE = 48; let pickedUpItem = false;
-            for(let i = pickups.length - 1; i >= 0; i--){
-                const pu = pickups[i]; if(pu.collected || pu.health <= 0 || pu.pickupType === 'ammo') continue;
-                if(Math.hypot((player.x+player.width/2)-(pu.x+pu.width/2), (player.y+player.height/2)-(pu.y+pu.height/2)) <= PICKUP_RANGE){
-                    if(pu.pickupType === 'weapon'){ const otherWeaponsCount = player.weapons.filter(w => w.name !== 'Pistol').length; if (otherWeaponsCount < 4) { player.weapons.push(pu.weaponData); player.currentWeaponIndex = player.weapons.length - 1; pickedUpItem = true; } }
-                    else if (pu.pickupType === 'helmet' && !player.hasHelmet) { player.hasHelmet = true; pickedUpItem = true;}
-                    if (pickedUpItem) { pu.collected = true; break; }
-                }
-            }
-            if (!pickedUpItem) {
-                for (let i = throwableProjectiles.length - 1; i >= 0; i--) { const t = throwableProjectiles[i]; if (t instanceof ThrownToaster && t.active) { if(Math.hypot((player.x+player.width/2)-(t.x+t.width/2), (player.y+player.height/2)-(t.y+t.height/2)) <= PICKUP_RANGE){ const otherWeaponsCount = player.weapons.filter(w => w.name !== 'Pistol').length; if (otherWeaponsCount < 4) { player.weapons.push(new Weapon("Toaster", "throwable", 5, 50, 1, 0, 'toaster', 1, 1, 4)); player.currentWeaponIndex = player.weapons.length - 1; t.active = false; pickedUpItem = true; break; } } } }
-            }
+            for(let i = pickups.length - 1; i >= 0; i--){ const pu = pickups[i]; if(pu.collected || pu.health <= 0) continue; if(Math.hypot((player.x+player.width/2)-(pu.x+pu.width/2), (player.y+player.height/2)-(pu.y+pu.height/2)) <= PICKUP_RANGE){ if(pu.pickupType === 'weapon'){ const otherWeaponsCount = player.weapons.filter(w => w.name !== 'Pistol').length; if (otherWeaponsCount < 4) { player.weapons.push(pu.weaponData); player.currentWeaponIndex = player.weapons.length - 1; pickedUpItem = true; } } else if (pu.pickupType === 'helmet' && !player.hasHelmet) { player.hasHelmet = true; pickedUpItem = true;} if (pickedUpItem) { pu.collect(); break; } } }
+            if (!pickedUpItem) { for (let i = throwableProjectiles.length - 1; i >= 0; i--) { const t = throwableProjectiles[i]; if (t instanceof ThrownToaster && t.active) { if(Math.hypot((player.x+player.width/2)-(t.x+t.width/2), (player.y+player.height/2)-(t.y+t.height/2)) <= PICKUP_RANGE){ const otherWeaponsCount = player.weapons.filter(w => w.name !== 'Pistol').length; if (otherWeaponsCount < 4) { player.weapons.push(new Weapon("Toaster", "throwable", 5, 50, 1, 0, 'toaster', 1, 1, 4)); player.currentWeaponIndex = player.weapons.length - 1; t.active = false; pickedUpItem = true; break; } } } } }
             if(!pickedUpItem){ const curWeapon = player.getCurrentWeapon(); if(curWeapon && curWeapon.name !== 'Pistol'){ const removed = player.weapons.splice(player.currentWeaponIndex,1)[0]; if(player.currentWeaponIndex >= player.weapons.length) player.currentWeaponIndex = player.weapons.length - 1; if(player.currentWeaponIndex < 0) player.currentWeaponIndex = 0; const p = new Pickup(player.x+player.width/2-TILE_SIZE/2, player.y-player.height*0.25, 'weapon', removed, TILE_SIZE); p.vx = (player.vx || (player.lastMoveDirection*2) || 2); p.vy = -7; pickups.push(p); } }
         }
         if(input.wasKeyJustPressed('b') && player.health > 0 && !player.isInVehicle && player.hasHelmet){ player.hasHelmet = false; const helmetPickup = new Pickup(player.x+player.width/2-TILE_SIZE/2, player.y-player.height*0.25, 'helmet', null, TILE_SIZE); helmetPickup.vx = (player.vx || (player.lastMoveDirection*2) || 2); helmetPickup.vy = -7; pickups.push(helmetPickup); }
@@ -1014,12 +1204,19 @@ document.addEventListener('DOMContentLoaded', ()=> {
             }
         }
         if(!player.isInVehicle){ if(input.wasKeyJustPressed('q'))player.cycleWeapon(-1); if(input.wasKeyJustPressed('e'))player.cycleWeapon(1); }
-        
-        const currentAllEntities = [...cops, ...criminals];
-        if (hostage) currentAllEntities.push(hostage);
-        if (vehicle) currentAllEntities.push(vehicle);
-        if (chairs.length > 0) currentAllEntities.push(...chairs);
 
+        // CO-OP Join
+        if (input.wasKeyJustPressed('p') && !player2 && gameTeamSize > 1) {
+            const friendlyTeam = player.isCop ? cops : criminals;
+            const aiAlly = friendlyTeam.find(p => !p.isPlayer);
+            if (aiAlly) {
+                player2 = aiAlly;
+                player2.isPlayer = true;
+                player2.playerIndex = 2;
+                player2.color = player.isCop ? 'blue' : 'orange';
+            }
+        }
+        
         const gameContext = { player, cops, criminals };
         currentAllEntities.forEach(e => e.update(input, world, gameContext, projectiles, smokeClouds, pickups, {x: worldMouseX, y: worldMouseY}, throwableProjectiles));
         pickups.forEach(p => p.update(world));
@@ -1028,18 +1225,23 @@ document.addEventListener('DOMContentLoaded', ()=> {
         explosions.push(...newExplosions);
         [...explosions, ...smokeClouds, ...stunClouds].forEach(o => o.update(currentAllEntities));
         
-        projectiles = projectiles.filter(p => p.active); pickups = pickups.filter(p => !p.collected); throwableProjectiles = throwableProjectiles.filter(p => p.active); explosions = explosions.filter(e => e.active); smokeClouds = smokeClouds.filter(s => s.active); stunClouds = stunClouds.filter(s => s.active);
-        cops = cops.filter(c => c.health > 0); criminals = criminals.filter(c => c.health > 0);
+        projectiles = projectiles.filter(p => p.active);
+        // pickups = pickups.filter(p => !p.collected); // This line is removed to allow respawning
+        throwableProjectiles = throwableProjectiles.filter(p => p.active); 
+        explosions = explosions.filter(e => e.active); 
+        smokeClouds = smokeClouds.filter(s => s.active); 
+        stunClouds = stunClouds.filter(s => s.active);
+        
+        const activeCops = cops.filter(c => c.health > 0);
+        const activeCriminals = criminals.filter(c => c.health > 0);
         
         if (playerTeam === 'cops') {
             if (hostage && hostage.isRescued) { showWinScreen("Hostage Rescued!", gameTime); return; }
-            if (!cops.includes(player)) { showGameOverScreen("You Were Killed!", "The cops have failed."); return; }
+            if (activeCops.every(c => c.playerIndex === 0 || c.health <= 0)) { showGameOverScreen("You Were Killed!", "The cops have failed."); return; }
             if (hostage && hostage.health <= 0) { showGameOverScreen("Hostage Killed!", "The hostage is collateral damage."); return; }
         } else {
-            if (cops.length === 0) { showWinScreen("Cops Eliminated!", gameTime); return; }
-            if (!criminals.includes(player)) { showGameOverScreen("You Were Killed!", "The criminals have failed."); return; }
-            if (criminals.length === 0 && player.health > 0) { showGameOverScreen("Team Wiped!", "Your entire team was eliminated."); return; }
-            if (hostage && hostage.health <= 0) { showGameOverScreen("Hostage Killed!", "You failed to protect the asset."); return; }
+            if (activeCops.length === 0) { showWinScreen("Cops Eliminated!", gameTime); return; }
+            if (activeCriminals.every(c => c.playerIndex === 0 || c.health <= 0)) { showGameOverScreen("You Were Killed!", "The criminals have failed."); return; }
         }
 
         const cameraTarget = player.isInVehicle ? vehicle : player;
