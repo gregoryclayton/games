@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Mech Game - AI Weapon Pickup</title>
+    <title>Mech Game - AI Update</title>
     <style>
         body { margin:0; background:#111; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:white; }
         canvas { image-rendering: pixelated; background:#87CEEB; border:2px solid #222; cursor:none; }
@@ -67,9 +67,9 @@
 <script>
 /*
   mechgame.html - Complete version with all features:
-  - UPDATE: Friendly AI can now pick up weapons if they have inventory space.
   - UPDATE: Friendly AI now follows the player and attacks enemies on sight.
   - NEW: Player can select team size (1v1, 2v2, 3v3) after choosing a team.
+  - NEW: Game dynamically spawns units based on the selected team size.
 */
 
 class InputHandler {
@@ -469,6 +469,7 @@ class Player extends PhysicsEntity {
         }
     }
     
+    // Generic AI for enemies or patrolling units
     handleEnemyAI(targets, world, projectiles, smokeClouds){
         if(this.stunTimer > 0) { this.vx *= 0.2; return false; }
         let closestTarget = null, minD = Infinity;
@@ -490,48 +491,33 @@ class Player extends PhysicsEntity {
                  const weapon = this.getCurrentWeapon();
                  for(let i=0; i < weapon.pellets; i++){ projectiles.push(new Projectile(startX, startY, endX, endY, this, weapon.damage, aimOffset + (Math.random() - 0.5) * weapon.spread)); }
                  this.shootTimer = weapon.cooldown / this.fireRateMultiplier;
-                 return true;
+                 return true; // Indicate that AI has taken an action (attacked)
             }
         }
         this.patrolTimer--; if(this.patrolTimer <= 0) { this.patrolDir *= -1; this.patrolTimer = Math.random()*120+120; }
         this.vx = this.patrolDir * 1;
-        return false;
+        return false; // Indicate no action was taken
     }
 
-    handleFriendlyAI(player, enemies, world, projectiles, smokeClouds, pickups) {
+    // New AI for friendly units that follow the player
+    handleFriendlyAI(player, enemies, world, projectiles, smokeClouds) {
+        // First, prioritize attacking any visible enemies
         const hasAttacked = this.handleEnemyAI(enemies, world, projectiles, smokeClouds);
 
+        // If the AI didn't attack, then it should consider following the player
         if (!hasAttacked) {
-            // Check for weapon pickups
-            const otherWeaponsCount = this.weapons.filter(w => w.name !== 'Pistol').length;
-            if (otherWeaponsCount < 4) {
-                let closestPickup = null;
-                let minPickupDist = Infinity;
-                pickups.forEach(p => {
-                    if (p.pickupType === 'weapon' && !p.collected) {
-                        const dist = Math.hypot(this.x - p.x, this.y - p.y);
-                        if (dist < minPickupDist) {
-                            minPickupDist = dist;
-                            closestPickup = p;
-                        }
-                    }
-                });
-
-                if (closestPickup && minPickupDist < this.TILE_SIZE * 10) {
-                    if (this.x < closestPickup.x - this.TILE_SIZE) this.vx = 1.5;
-                    else if (this.x > closestPickup.x + this.TILE_SIZE) this.vx = -1.5;
-                    else this.vx = 0;
-                    return; // Prioritize getting weapon over following
-                }
-            }
-            
-            // Follow player logic
             const distanceToPlayer = Math.hypot(this.x - player.x, this.y - player.y);
             if (distanceToPlayer > this.followDistance) {
-                if (this.x < player.x - this.TILE_SIZE * 2) this.vx = 1.5;
-                else if (this.x > player.x + this.TILE_SIZE * 2) this.vx = -1.5;
-                else this.vx = 0;
+                // Move towards the player
+                if (this.x < player.x - this.TILE_SIZE * 2) {
+                    this.vx = 1.5;
+                } else if (this.x > player.x + this.TILE_SIZE * 2) {
+                    this.vx = -1.5;
+                } else {
+                    this.vx = 0;
+                }
             } else {
+                // Close enough, just stand still
                 this.vx = 0;
             }
         }
@@ -558,28 +544,11 @@ class Player extends PhysicsEntity {
             
             if (amIFriendly) {
                 const enemies = this.isCop ? context.criminals : context.cops;
-                this.handleFriendlyAI(context.player, enemies, world, projectiles, smokeClouds, pickups);
+                this.handleFriendlyAI(context.player, enemies, world, projectiles, smokeClouds);
             } else { // Is an enemy
                 const enemies = this.isCop ? context.criminals : context.cops;
                 this.handleEnemyAI(enemies, world, projectiles, smokeClouds);
             }
-        }
-
-        // AI Weapon Pickup Logic
-        if (!this.isPlayer && !this.isHostage) {
-             const otherWeaponsCount = this.weapons.filter(w => w.name !== 'Pistol').length;
-             if (otherWeaponsCount < 4) {
-                 for(let i = pickups.length - 1; i >= 0; i--){
-                     const pu = pickups[i];
-                     if(pu.collected || pu.pickupType !== 'weapon') continue;
-                     if(Math.hypot((this.x+this.width/2)-(pu.x+pu.width/2), (this.y+this.height/2)-(pu.y+pu.height/2)) < this.width){
-                         this.weapons.push(pu.weaponData);
-                         this.currentWeaponIndex = this.weapons.length - 1;
-                         pu.collected = true;
-                         break;
-                     }
-                 }
-             }
         }
         
         this.applyPhysics(world);
@@ -648,19 +617,30 @@ class Vehicle extends PhysicsEntity {
     }
     draw(ctx){ 
         if(this.health <= 0) return; 
+        // Main body
         ctx.fillStyle = this.health > 0 ? this.color : '#333';
         ctx.fillRect(this.x, this.y, this.width, this.height);
+        
+        // Driver section (front half)
         ctx.fillStyle = '#8d99ae';
         ctx.fillRect(this.x, this.y, this.width / 2, this.height);
+        
+        // Gunner hatch (back half)
         ctx.fillStyle = '#495057';
         ctx.beginPath();
         ctx.arc(this.x + this.width * 0.75, this.y + this.height / 2, this.width * 0.15, 0, Math.PI * 2);
         ctx.fill();
+
+        // Role indicators
         ctx.fillStyle = 'white'; ctx.font = 'bold 24px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         if (!this.driver) { ctx.fillText('D', this.x + this.width * 0.25, this.y + this.height / 2); }
         if (!this.gunner) { ctx.fillText('G', this.x + this.width * 0.75, this.y + this.height / 2); }
+
+        // Health bar
         const healthBarY = this.y - 10; 
         if(this.health > 0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, healthBarY, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, healthBarY, bw*(this.health/this.maxHealth), bh); }
+        
+        // Cannon
         const cannonX = this.x + this.width * 0.75, cannonY = this.y + this.height / 2;
         const cannonLength = this.TILE_SIZE * 3, cannonHeight = this.TILE_SIZE * 0.6;
         ctx.save();
