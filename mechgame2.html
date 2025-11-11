@@ -66,10 +66,10 @@
 
 <script>
 /*
-  mechgame.html - Complete version with all features:
-  - UPDATE: Friendly AI now follows the player and attacks enemies on sight.
-  - NEW: Player can select team size (1v1, 2v2, 3v3) after choosing a team.
-  - NEW: Game dynamically spawns units based on the selected team size.
+  mechgame.html - Refactor for Map Generation
+  - UPDATE: Map generation now uses a visual, string-based array (LEVEL_DATA) for easy editing.
+  - NEW: TILE_KEY object maps characters from LEVEL_DATA to tile properties.
+  - REFACTOR: World.generate() is now much simpler and just parses the new map format.
 */
 
 class InputHandler {
@@ -469,7 +469,6 @@ class Player extends PhysicsEntity {
         }
     }
     
-    // Generic AI for enemies or patrolling units
     handleEnemyAI(targets, world, projectiles, smokeClouds){
         if(this.stunTimer > 0) { this.vx *= 0.2; return false; }
         let closestTarget = null, minD = Infinity;
@@ -491,33 +490,46 @@ class Player extends PhysicsEntity {
                  const weapon = this.getCurrentWeapon();
                  for(let i=0; i < weapon.pellets; i++){ projectiles.push(new Projectile(startX, startY, endX, endY, this, weapon.damage, aimOffset + (Math.random() - 0.5) * weapon.spread)); }
                  this.shootTimer = weapon.cooldown / this.fireRateMultiplier;
-                 return true; // Indicate that AI has taken an action (attacked)
+                 return true;
             }
         }
         this.patrolTimer--; if(this.patrolTimer <= 0) { this.patrolDir *= -1; this.patrolTimer = Math.random()*120+120; }
         this.vx = this.patrolDir * 1;
-        return false; // Indicate no action was taken
+        return false;
     }
 
-    // New AI for friendly units that follow the player
-    handleFriendlyAI(player, enemies, world, projectiles, smokeClouds) {
-        // First, prioritize attacking any visible enemies
+    handleFriendlyAI(player, enemies, world, projectiles, smokeClouds, pickups) {
         const hasAttacked = this.handleEnemyAI(enemies, world, projectiles, smokeClouds);
 
-        // If the AI didn't attack, then it should consider following the player
         if (!hasAttacked) {
+            const otherWeaponsCount = this.weapons.filter(w => w.name !== 'Pistol').length;
+            if (otherWeaponsCount < 4) {
+                let closestPickup = null;
+                let minPickupDist = Infinity;
+                pickups.forEach(p => {
+                    if (p.pickupType === 'weapon' && !p.collected) {
+                        const dist = Math.hypot(this.x - p.x, this.y - p.y);
+                        if (dist < minPickupDist) {
+                            minPickupDist = dist;
+                            closestPickup = p;
+                        }
+                    }
+                });
+
+                if (closestPickup && minPickupDist < this.TILE_SIZE * 10) {
+                    if (this.x < closestPickup.x - this.TILE_SIZE) this.vx = 1.5;
+                    else if (this.x > closestPickup.x + this.TILE_SIZE) this.vx = -1.5;
+                    else this.vx = 0;
+                    return; 
+                }
+            }
+            
             const distanceToPlayer = Math.hypot(this.x - player.x, this.y - player.y);
             if (distanceToPlayer > this.followDistance) {
-                // Move towards the player
-                if (this.x < player.x - this.TILE_SIZE * 2) {
-                    this.vx = 1.5;
-                } else if (this.x > player.x + this.TILE_SIZE * 2) {
-                    this.vx = -1.5;
-                } else {
-                    this.vx = 0;
-                }
+                if (this.x < player.x - this.TILE_SIZE * 2) this.vx = 1.5;
+                else if (this.x > player.x + this.TILE_SIZE * 2) this.vx = -1.5;
+                else this.vx = 0;
             } else {
-                // Close enough, just stand still
                 this.vx = 0;
             }
         }
@@ -538,17 +550,33 @@ class Player extends PhysicsEntity {
             this.aimAngle = Math.atan2(worldMousePos.y - (this.y + this.height/2), worldMousePos.x - (this.x + this.width/2));
         } else if (this.isHostage) {
             this.vx = 0;
-        } else { // AI logic
+        } else { 
             const playerIsCop = context.player.isCop;
             const amIFriendly = (this.isCop && playerIsCop) || (this.isCriminal && !playerIsCop);
             
             if (amIFriendly) {
                 const enemies = this.isCop ? context.criminals : context.cops;
-                this.handleFriendlyAI(context.player, enemies, world, projectiles, smokeClouds);
-            } else { // Is an enemy
+                this.handleFriendlyAI(context.player, enemies, world, projectiles, smokeClouds, pickups);
+            } else { 
                 const enemies = this.isCop ? context.criminals : context.cops;
                 this.handleEnemyAI(enemies, world, projectiles, smokeClouds);
             }
+        }
+
+        if (!this.isPlayer && !this.isHostage) {
+             const otherWeaponsCount = this.weapons.filter(w => w.name !== 'Pistol').length;
+             if (otherWeaponsCount < 4) {
+                 for(let i = pickups.length - 1; i >= 0; i--){
+                     const pu = pickups[i];
+                     if(pu.collected || pu.pickupType !== 'weapon') continue;
+                     if(Math.hypot((this.x+this.width/2)-(pu.x+pu.width/2), (this.y+this.height/2)-(pu.y+pu.height/2)) < this.width){
+                         this.weapons.push(pu.weaponData);
+                         this.currentWeaponIndex = this.weapons.length - 1;
+                         pu.collected = true;
+                         break;
+                     }
+                 }
+             }
         }
         
         this.applyPhysics(world);
@@ -617,30 +645,19 @@ class Vehicle extends PhysicsEntity {
     }
     draw(ctx){ 
         if(this.health <= 0) return; 
-        // Main body
         ctx.fillStyle = this.health > 0 ? this.color : '#333';
         ctx.fillRect(this.x, this.y, this.width, this.height);
-        
-        // Driver section (front half)
         ctx.fillStyle = '#8d99ae';
         ctx.fillRect(this.x, this.y, this.width / 2, this.height);
-        
-        // Gunner hatch (back half)
         ctx.fillStyle = '#495057';
         ctx.beginPath();
         ctx.arc(this.x + this.width * 0.75, this.y + this.height / 2, this.width * 0.15, 0, Math.PI * 2);
         ctx.fill();
-
-        // Role indicators
         ctx.fillStyle = 'white'; ctx.font = 'bold 24px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         if (!this.driver) { ctx.fillText('D', this.x + this.width * 0.25, this.y + this.height / 2); }
         if (!this.gunner) { ctx.fillText('G', this.x + this.width * 0.75, this.y + this.height / 2); }
-
-        // Health bar
         const healthBarY = this.y - 10; 
         if(this.health > 0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, healthBarY, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, healthBarY, bw*(this.health/this.maxHealth), bh); }
-        
-        // Cannon
         const cannonX = this.x + this.width * 0.75, cannonY = this.y + this.height / 2;
         const cannonLength = this.TILE_SIZE * 3, cannonHeight = this.TILE_SIZE * 0.6;
         ctx.save();
@@ -708,43 +725,113 @@ class Chair extends PhysicsEntity {
         ctx.globalAlpha = 1;
     }
 }
+
+// Dev-friendly map definitions
+const TILE_KEY = {
+    ' ': null,
+    'G': { type: 'grass',    health: 6, maxHealth: 6, ricochetChance: 0, color: '#6A9E49' },
+    'D': { type: 'dirt',     health: 6, maxHealth: 6, ricochetChance: 0, color: '#966A4A' },
+    'H': { type: 'dirt',     health: 18, maxHealth: 18, ricochetChance: 0, color: '#6e4f37' }, // Hardened dirt
+    'P': { type: 'platform', health: 4, maxHealth: 4, ricochetChance: 0.1, color: '#C2B280' },
+    'L': { type: 'glass',    health: 1, maxHealth: 1, ricochetChance: 0.05, color: 'lightblue' },
+    'W': { type: 'wood',     health: 8, maxHealth: 8, ricochetChance: 0.1, color: '#A0522D' },
+    'C': { type: 'concrete', health: 25, maxHealth: 25, ricochetChance: 0.4, color: '#808080' },
+    'M': { type: 'metal',    health: 50, maxHealth: 50, ricochetChance: 0.8, color: '#A9A9A9' },
+    'B': { type: 'beam',     health: 10, maxHealth: 10, ricochetChance: 0.1, color: '#736f6e' },
+    'F': { type: 'gascan',   health: 2, maxHealth: 2, ricochetChance: 0.5, color: '#c00' },
+};
+
+const LEVEL_DATA = [
+//   1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+    "                                                                                                                                                      ", // 0
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ", // 5
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ", // 10
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ", // 15
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ",
+    "                                                                                                                                                      ", // 20
+    "      H                                                                                                                                                 ",
+    "      H                                                                                                                                                 ",
+    "      H         PP                                                                                                                                      ",
+    "      H                                                                                                                                                 ",
+    "      H                                                                                                                             HHHHHHHHHHHHHHH   ", // 25
+    "      H           PP                                                                                                                H             H   ",
+    "      H                                                                                     HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH           H             H   ",
+    "      H                                                                                     H                               H           H             H   ",
+    "      H             PP                                                                      H                               H           H             H   ",
+    "      H                                                                                     H                               H           H             H   ", // 30
+    "      H                                                                                     H                               H           H             H   ",
+    "      H               PP                                                                    H                               H           H             H   ",
+    "      H                                                                                     H                               H           H             H   ",
+    "      H                                                                                     H                               H           H             H   ",
+    "      H                 PP                                                                  H                               H           HHHHHHHHHHHHHHH   ", // 35
+    "DDDDDHDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+    "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+    "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+    "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG", // 40
+    "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", // 45
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", // 50
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", // 55
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"  // 59
+];
+
 class World { 
     constructor(w,h,tileSize){ 
-        this.width = w; this.height = h; this.TILE_SIZE = tileSize; this.BLOCK_BASE_HEALTH = 6; this.grid = []; 
-        this.structureIdCounter = 0; this.generate(); 
+        this.width = w; this.height = h; this.TILE_SIZE = tileSize;
+        this.grid = []; 
+        this.generate(); 
     } 
     generate(){ 
-        this.grid = Array(this.height).fill(null).map(() => Array(this.width).fill(null)); 
-        const groundLevel = this.height * 0.6; 
-        for(let y=0; y<this.height; y++){ for(let x=0; x<this.width; x++){ if(y > groundLevel){ this.grid[y][x] = { type: (y < groundLevel + 6) ? 'grass' : 'dirt', health: this.BLOCK_BASE_HEALTH, maxHealth: this.BLOCK_BASE_HEALTH, ricochetChance: 0 }; } } } 
-        const groundY = Math.floor(groundLevel) + 1; 
-        const bh=10, bw=15, bx=this.width-bw-20, by=groundY-bh; 
-        for(let y=by; y<groundY; y++){ for(let x=bx; x<bx+bw; x++){ if(x===bx || x===bx+bw-1 || y===by){ if(!(x>bx+2 && x<bx+bw-3 && y>by+2)) this.grid[y][x] = { type:'dirt', health:this.BLOCK_BASE_HEALTH*3, maxHealth:this.BLOCK_BASE_HEALTH*3, ricochetChance: 0 }; } } } 
-        const beamId1 = ++this.structureIdCounter; for (let i = 0; i < 5; i++) { this.grid[groundY - 1 - i][150] = { type: 'beam', health: 10, maxHealth: 10, ricochetChance: 0.1, structureId: beamId1 }; }
-        const beamId2 = ++this.structureIdCounter; for (let i = 0; i < 5; i++) { this.grid[groundY - 1 - i][30] = { type: 'beam', health: 10, maxHealth: 10, ricochetChance: 0.1, structureId: beamId2 }; }
-        const wallX = 6, wallH = 15; for(let y = groundY - wallH; y < groundY; y++){ this.grid[y][wallX] = { type:'dirt', health: this.BLOCK_BASE_HEALTH*2, maxHealth: this.BLOCK_BASE_HEALTH*2, ricochetChance: 0 }; } 
-        for(let i = 0; i < 5; i++) { this.grid[groundY - 5 - (i*3)][10 + i*2] = { type: 'platform', health: 4, maxHealth: 4, ricochetChance: 0.1}; this.grid[groundY - 5 - (i*3)][11 + i*2] = { type: 'platform', health: 4, maxHealth: 4, ricochetChance: 0.1}; } 
-        const wallStart = 130; 
-        for(let i=0; i<4; i++){ for(let j=0; j<5; j++){ this.grid[groundY-1-j][wallStart+i*10] = {type:'glass', health:1, maxHealth:1, ricochetChance: 0.05}; this.grid[groundY-1-j][wallStart+1+i*10] = {type:'wood', health:8, maxHealth:8, ricochetChance: 0.1}; this.grid[groundY-1-j][wallStart+2+i*10] = {type:'concrete', health:25, maxHealth:25, ricochetChance: 0.4}; this.grid[groundY-1-j][wallStart+3+i*10] = {type:'metal', health:50, maxHealth:50, ricochetChance: 0.8}; } } 
-        const lastWallX = wallStart + 3 * 10 + 4; for (let i = 0; i < 3; i++) { this.grid[groundY - 1 - i][lastWallX] = {type: 'gascan', health: 2, maxHealth: 2, ricochetChance: 0.5}; } 
+        this.grid = Array(this.height).fill(null).map(() => Array(this.width).fill(null));
+        for (let y = 0; y < LEVEL_DATA.length; y++) {
+            for (let x = 0; x < LEVEL_DATA[y].length; x++) {
+                const char = LEVEL_DATA[y][x];
+                const tileInfo = TILE_KEY[char];
+                if (tileInfo) {
+                    this.grid[y][x] = { ...tileInfo };
+                }
+            }
+        }
     } 
     getTile(x,y){ if(x<0||x>=this.width||y<0||y>=this.height) return null; return this.grid[y][x]; } 
     damageTile(x,y,dmg=1, newExplosions, allEntities){ 
         const t = this.getTile(x,y); 
-        if(t && t.health > 0){ t.health -= dmg; if(t.health <= 0) { if (t.type === 'gascan') { newExplosions.push(new Explosion(x * this.TILE_SIZE + this.TILE_SIZE/2, y * this.TILE_SIZE + this.TILE_SIZE/2, this.TILE_SIZE*6, 15, this, allEntities, newExplosions)); } if (t.structureId) { this.destroyStructure(t.structureId); } else { this.grid[y][x] = null; } } } 
+        if(t && t.health > 0){ t.health -= dmg; if(t.health <= 0) { if (t.type === 'gascan') { newExplosions.push(new Explosion(x * this.TILE_SIZE + this.TILE_SIZE/2, y * this.TILE_SIZE + this.TILE_SIZE/2, this.TILE_SIZE*6, 15, this, allEntities, newExplosions)); } this.grid[y][x] = null; } } 
     }
-    destroyStructure(id) { for (let y = 0; y < this.height; y++) { for (let x = 0; x < this.width; x++) { const tile = this.grid[y][x]; if (tile && tile.structureId === id) { this.grid[y][x] = null; } } } }
     draw(ctx){ 
         for(let y=0;y<this.height;y++){ for(let x=0;x<this.width;x++){ const t = this.getTile(x,y); if(t){ 
-            let color;
-            switch(t.type) {
-                case 'platform': color = '#C2B280'; break; case 'gascan': color = '#c00'; break;
-                case 'glass': color = 'lightblue'; break; case 'wood': color = '#A0522D'; break;
-                case 'concrete': color = '#808080'; break; case 'metal': color = '#A9A9A9'; break;
-                case 'beam': color = '#736f6e'; break; case 'dirt': color = '#966A4A'; break;
-                default: color = '#6A9E49'; break;
-            }
-            ctx.fillStyle = color; ctx.globalAlpha = Math.max(0.15, t.health/t.maxHealth); 
+            ctx.fillStyle = t.color; 
+            ctx.globalAlpha = t.maxHealth ? Math.max(0.15, t.health/t.maxHealth) : 1; 
             ctx.fillRect(x*this.TILE_SIZE, y*this.TILE_SIZE, this.TILE_SIZE, this.TILE_SIZE); 
             ctx.globalAlpha = 1; 
             if(t.type !== 'grass' && t.type !== 'dirt' && t.type !== 'platform'){ ctx.strokeStyle='#000a'; ctx.strokeRect(x*this.TILE_SIZE+1,y*this.TILE_SIZE+1,this.TILE_SIZE-2,this.TILE_SIZE-2); } } } } 
@@ -760,7 +847,7 @@ class Camera {
         if (isScoped) { 
             baseZoom = 0.7; 
         } else if (player.isInVehicle) {
-            baseZoom = 0.9; // Simplified zoom for vehicle
+            baseZoom = 0.9;
         } else {
             const sprintMultiplier = targetEntity.sprintMultiplier || 1;
             const maxSprintSpeed = targetEntity.maxSpeed * sprintMultiplier;
@@ -796,28 +883,26 @@ document.addEventListener('DOMContentLoaded', ()=> {
 
     function initializeGame(){
         input = new InputHandler(); world = new World(WORLD_W, WORLD_H, TILE_SIZE);
-        const copSpawnX = 15 * TILE_SIZE, groundY = Math.floor(WORLD_H * 0.6) * TILE_SIZE;
-        const criminalSpawnX = WORLD_W - 25;
+        const copSpawnX = 15 * TILE_SIZE, groundY = 36 * TILE_SIZE;
+        const criminalSpawnX = 270 * TILE_SIZE;
 
         cops = []; criminals = [];
 
         for (let i = 0; i < gameTeamSize; i++) {
-            const copSpawnOffset = i * 50;
-            const criminalSpawnOffset = i * 50;
-            cops.push(new Player(copSpawnX - copSpawnOffset, groundY - (TILE_SIZE * 3), TILE_SIZE, 'green', true, false, false, gameDifficulty));
-            criminals.push(new Player((criminalSpawnX - criminalSpawnOffset) * TILE_SIZE, groundY - (TILE_SIZE * 3), TILE_SIZE, 'blue', false, true, false, gameDifficulty));
+            cops.push(new Player(copSpawnX - (i * 50), groundY - (TILE_SIZE * 3), TILE_SIZE, 'green', true, false, false, gameDifficulty));
+            criminals.push(new Player(criminalSpawnX - (i * 50), groundY - (TILE_SIZE * 3), TILE_SIZE, 'blue', false, true, false, gameDifficulty));
         }
 
         if (playerTeam === 'cops') {
             player = cops[0];
             player.isPlayer = true;
             player.color = 'red';
-        } else { // playerTeam === 'criminals'
+        } else {
             player = criminals[0];
             player.isPlayer = true;
         }
 
-        hostage = new Player((criminalSpawnX + 5) * TILE_SIZE, groundY - (TILE_SIZE*3), TILE_SIZE, 'yellow', false, false, true);
+        hostage = new Player(275 * TILE_SIZE, groundY - (TILE_SIZE*3), TILE_SIZE, 'yellow', false, false, true);
         vehicle = new Vehicle(copSpawnX + 400, groundY - (TILE_SIZE*6), TILE_SIZE);
         chairs = [ new Chair(10 * TILE_SIZE, groundY - TILE_SIZE*8, TILE_SIZE), new Chair((criminalSpawnX + 2) * TILE_SIZE, groundY - TILE_SIZE, TILE_SIZE) ];
         
@@ -1013,12 +1098,11 @@ document.addEventListener('DOMContentLoaded', ()=> {
         projectiles = projectiles.filter(p => p.active); pickups = pickups.filter(p => !p.collected); throwableProjectiles = throwableProjectiles.filter(p => p.active); explosions = explosions.filter(e => e.active); smokeClouds = smokeClouds.filter(s => s.active); stunClouds = stunClouds.filter(s => s.active);
         cops = cops.filter(c => c.health > 0); criminals = criminals.filter(c => c.health > 0);
         
-        // --- Win/Loss Conditions ---
         if (playerTeam === 'cops') {
             if (hostage.isRescued) { showWinScreen("Hostage Rescued!", gameTime); return; }
             if (!cops.includes(player)) { showGameOverScreen("You Were Killed!", "The cops have failed."); return; }
             if (hostage.health <= 0) { showGameOverScreen("Hostage Killed!", "The hostage is collateral damage."); return; }
-        } else { // playerTeam === 'criminals'
+        } else {
             if (cops.length === 0) { showWinScreen("Cops Eliminated!", gameTime); return; }
             if (!criminals.includes(player)) { showGameOverScreen("You Were Killed!", "The criminals have failed."); return; }
             if (criminals.length === 0 && player.health > 0) { showGameOverScreen("Team Wiped!", "Your entire team was eliminated."); return; }
