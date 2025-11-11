@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mech Game - Level Editor</title>
+    <style>
+        body { margin:0; background:#111; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:white; }
+        canvas { image-rendering: pixelated; background:#5d94b1; border:2px solid #222; cursor: none; }
+        #levelEditorUI { position:absolute; top:20px; left:20px; z-index: 30; background: rgba(0,0,0,0.6); padding: 10px; border-radius: 8px; display: flex; align-items: center; }
+        #levelEditorUI select, #levelEditorUI button, #levelEditorUI a { font-size: 1rem; margin: 0 10px; padding: 8px 12px; text-decoration: none; color: white; background-color: #333; border: 1px solid #555; border-radius: 4px; cursor: pointer; }
+        #levelEditorUI a:hover, #levelEditorUI button:hover { background-color: #444; }
+        #levelEditorUI label { margin-left: 5px; }
+        #clipboardMessage { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: #2a2; color: white; padding: 10px 20px; border-radius: 5px; z-index: 40; transition: opacity 0.5s; }
+    </style>
+</head>
+<body>
+    <div id="levelEditorUI">
+        <label for="tileSelect">Block Type:</label>
+        <select id="tileSelect"></select>
+        <button id="saveMapButton">Save Map</button>
+        <a href="mechgame.html">Back to Game</a>
+    </div>
+    <div id="clipboardMessage" class="hidden">Map JSON copied to clipboard!</div>
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const TILE_DEFINITIONS = {
+    'grass':    { color: '#6A9E49', health: 6, ricochetChance: 0 },
+    'dirt':     { color: '#966A4A', health: 6, ricochetChance: 0 },
+    'platform': { color: '#C2B280', health: 4, ricochetChance: 0.1 },
+    'glass':    { color: 'lightblue', health: 1, ricochetChance: 0.05 },
+    'wood':     { color: '#A0522D', health: 8, ricochetChance: 0.1 },
+    'concrete': { color: '#808080', health: 25, ricochetChance: 0.4 },
+    'metal':    { color: '#A9A9A9', health: 50, ricochetChance: 0.8 },
+    'beam':     { color: '#736f6e', health: 10, ricochetChance: 0.1 },
+    'gascan':   { color: '#c00', health: 2, ricochetChance: 0.5 },
+};
+
+class InputHandler {
+    constructor(canvas){
+        this.keys = new Set();
+        this.mouse = { x:0, y:0, isDown: false, isRightDown: false, isMiddleDown: false, prevX: 0, prevY: 0 };
+        window.addEventListener('keydown', e => this.keys.add(e.key.toLowerCase()));
+        window.addEventListener('keyup', e => this.keys.delete(e.key.toLowerCase()));
+        canvas.addEventListener('mousemove', e => { this.mouse.prevX = this.mouse.x; this.mouse.prevY = this.mouse.y; const r = canvas.getBoundingClientRect(); this.mouse.x = e.clientX - r.left; this.mouse.y = e.clientY - r.top; });
+        canvas.addEventListener('mousedown', e => { if (e.button === 0) this.mouse.isDown = true; else if (e.button === 1) this.mouse.isMiddleDown = true; else if (e.button === 2) this.mouse.isRightDown = true; e.preventDefault(); });
+        canvas.addEventListener('mouseup', e => { if (e.button === 0) this.mouse.isDown = false; else if (e.button === 1) this.mouse.isMiddleDown = false; else if (e.button === 2) this.mouse.isRightDown = false; });
+        canvas.addEventListener('contextmenu', e => e.preventDefault());
+    }
+}
+
+class World { 
+    constructor(w,h,tileSize, mapData = null){ 
+        this.width = w; this.height = h; this.TILE_SIZE = tileSize; this.grid = []; 
+        this.grid = Array(this.height).fill(null).map(() => Array(this.width).fill(null));
+    } 
+    getTile(x,y){ if(x<0||x>=this.width||y<0||y>=this.height) return null; return this.grid[y][x]; } 
+    setTile(x,y,type) {
+        if(x<0||x>=this.width||y<0||y>=this.height) return;
+        if(type && TILE_DEFINITIONS[type]) { this.grid[y][x] = { type: type }; }
+        else { this.grid[y][x] = null; }
+    }
+    draw(ctx){ 
+        for(let y=0;y<this.height;y++){ for(let x=0;x<this.width;x++){ const t = this.getTile(x,y); if(t){ 
+            ctx.fillStyle = TILE_DEFINITIONS[t.type].color || '#ff00ff';
+            ctx.fillRect(x*this.TILE_SIZE, y*this.TILE_SIZE, this.TILE_SIZE, this.TILE_SIZE); 
+        }}} 
+    }
+    toJSON() {
+        return JSON.stringify(this.grid.map(row => row.map(tile => tile ? tile.type : null)));
+    }
+}
+
+class Camera {
+    constructor(canvas){ this.canvas = canvas; this.x = 0; this.y = 0; this.zoom = 1; this.panSpeed = 1; }
+    update(input){
+        if (input.mouse.isMiddleDown || (input.keys.has('shift') && input.mouse.isDown)) {
+            this.x -= (input.mouse.x - input.mouse.prevX) / this.zoom;
+            this.y -= (input.mouse.y - input.mouse.prevY) / this.zoom;
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', ()=> {
+    const canvas = document.getElementById('gameCanvas'), ctx = canvas.getContext('2d');
+    const TILE_SIZE = 16, WORLD_W = 300, WORLD_H = 60;
+    canvas.width = 1280; canvas.height = 720;
+    
+    let input = new InputHandler(canvas);
+    let world = new World(WORLD_W, WORLD_H, TILE_SIZE);
+    let camera = new Camera(canvas);
+    let currentBrush = 'grass';
+
+    const tileSelect = document.getElementById('tileSelect');
+    Object.keys(TILE_DEFINITIONS).forEach(key => { const option = document.createElement('option'); option.value = key; option.textContent = key; tileSelect.appendChild(option); });
+    tileSelect.addEventListener('change', e => currentBrush = e.target.value);
+    
+    document.getElementById('saveMapButton').addEventListener('click', () => { 
+        navigator.clipboard.writeText(world.toJSON()).then(() => {
+            const msg = document.getElementById('clipboardMessage');
+            msg.classList.remove('hidden');
+            setTimeout(() => msg.classList.add('hidden'), 2000);
+        }); 
+    });
+
+    function handleEditorInput() {
+        const worldMouseX = (input.mouse.x - canvas.width/2)/camera.zoom + camera.x;
+        const worldMouseY = (input.mouse.y - canvas.height/2)/camera.zoom + camera.y;
+        const tx = Math.floor(worldMouseX / TILE_SIZE);
+        const ty = Math.floor(worldMouseY / TILE_SIZE);
+        if (input.mouse.isDown) { world.setTile(tx, ty, currentBrush); }
+        if (input.mouse.isRightDown) { world.setTile(tx, ty, null); }
+    }
+
+    function gameLoop(){
+        handleEditorInput();
+        camera.update(input);
+
+        ctx.clearRect(0,0,canvas.width,canvas.height); ctx.save();
+        ctx.translate(canvas.width/2, canvas.height/2); ctx.scale(camera.zoom, camera.zoom); ctx.translate(-Math.floor(camera.x), -Math.floor(camera.y));
+        
+        world.draw(ctx);
+        ctx.strokeStyle = "rgba(0,0,0,0.1)";
+        for(let x=0; x < world.width; x++) { ctx.beginPath(); ctx.moveTo(x*TILE_SIZE, 0); ctx.lineTo(x*TILE_SIZE, world.height*TILE_SIZE); ctx.stroke(); }
+        for(let y=0; y < world.height; y++) { ctx.beginPath(); ctx.moveTo(0, y*TILE_SIZE); ctx.lineTo(world.width*TILE_SIZE, y*TILE_SIZE); ctx.stroke(); }
+        
+        ctx.restore();
+        
+        ctx.fillStyle = TILE_DEFINITIONS[currentBrush]?.color || 'white';
+        ctx.globalAlpha = 0.5;
+        ctx.fillRect(Math.floor(input.mouse.x / TILE_SIZE) * TILE_SIZE, Math.floor(input.mouse.y / TILE_SIZE) * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = 'white';
+        ctx.strokeRect(Math.floor(input.mouse.x / TILE_SIZE) * TILE_SIZE, Math.floor(input.mouse.y / TILE_SIZE) * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+
+        requestAnimationFrame(gameLoop);
+    }
+    gameLoop();
+});
+</script>
+</body>
+</html>
