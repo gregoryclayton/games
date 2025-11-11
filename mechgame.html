@@ -1,261 +1,474 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Platformer</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mech Game - Main Menu</title>
     <style>
-        body { margin: 0; background-color: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; }
-        canvas { border: 2px solid white; background-color: #87CEEB; image-rendering: -moz-crisp-edges; image-rendering: -webkit-crisp-edges; image-rendering: pixelated; image-rendering: crisp-edges; cursor: none; }
-        #restartButton { position: absolute; top: 20px; left: 20px; padding: 10px 20px; font-size: 16px; background-color: #f0f0f0; border: 2px solid #333; border-radius: 5px; cursor: pointer; z-index: 10; }
-        #restartButton:hover { background-color: #ddd; }
-        #weaponUI { position: absolute; top: 60px; left: 20px; padding: 10px; font-size: 20px; color: white; background-color: rgba(0,0,0,0.5); border-radius: 5px; z-index: 10;}
+        body { margin:0; background:#111; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:white; }
+        canvas { image-rendering: pixelated; background:#87CEEB; border:2px solid #222; cursor:none; }
+        .hidden { display: none !important; }
+        #mainMenu { text-align: center; }
+        #mainMenu h1 { font-size: 4rem; margin-bottom: 2rem; }
+        #quickGameButton {
+            font-size: 1.5rem;
+            padding: 1rem 2rem;
+            background: #333;
+            color: white;
+            border: 2px solid #555;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        #quickGameButton:hover { background: #444; }
+        #restartButton { position:absolute; top:20px; left:20px; z-index:20; padding:8px 12px; }
+        #weaponUI { position:absolute; top:60px; left:20px; z-index:20; padding:8px 12px; color:white; background:rgba(0,0,0,0.4); border-radius:6px; }
     </style>
 </head>
 <body>
-    <button id="restartButton">Restart</button>
-    <div id="weaponUI">Weapon: Pistol</div>
-    <canvas id="gameCanvas"></canvas>
+    <div id="mainMenu">
+        <h1>Mech Game</h1>
+        <button id="quickGameButton">Quick Game</button>
+    </div>
 
-    <script>
-        class InputHandler {
-            constructor() { this.keys = new Set(); this.justPressed = new Set(); window.addEventListener('keydown', e => { const key = e.key.toLowerCase(); if (!this.keys.has(key)) this.justPressed.add(key); this.keys.add(key); }); window.addEventListener('keyup', e => this.keys.delete(e.key.toLowerCase())); }
-            isKeyPressed(key) { return this.keys.has(key.toLowerCase()); }
-            wasKeyJustPressed(key) { return this.justPressed.has(key.toLowerCase()); }
-            clearJustPressed() { this.justPressed.clear(); }
+    <button id="restartButton" class="hidden">Restart</button>
+    <div id="weaponUI" class="hidden">Weapon: Pistol</div>
+    <canvas id="gameCanvas" class="hidden"></canvas>
+
+<script>
+/*
+  mechgame.html - Complete version with all features:
+  - NEW: Added a main menu with a "Quick Game" button to start the game.
+  - Weapons now have limited ammo, which can be replenished by new ammo box pickups.
+  - UI updated to show ammo count.
+  - CRITICAL FIX: Vehicle entry crash has been permanently fixed by refactoring the camera logic.
+  - Smoke grenades now correctly emit smoke particles and block enemy line of sight.
+  - Added a passive "Hostage" character, and the enemy AI now defends them.
+*/
+
+class InputHandler {
+    constructor(){
+        this.keys = new Set(); this.justPressed = new Set();
+        window.addEventListener('keydown', e => { const k = e.key.toLowerCase(); if (!this.keys.has(k)) this.justPressed.add(k); this.keys.add(k); });
+        window.addEventListener('keyup', e => this.keys.delete(e.key.toLowerCase()));
+    }
+    isKeyPressed(key){ return this.keys.has(key.toLowerCase()); }
+    wasKeyJustPressed(key){ return this.justPressed.has(key.toLowerCase()); }
+    clearJustPressed(){ this.justPressed.clear(); }
+}
+
+class Weapon {
+    constructor(name,type,damage,cooldown,pellets=1,spread=0,projectileType='bullet', ammo=Infinity, maxAmmo=Infinity){
+        this.name=name; this.type=type; this.damage=damage; this.cooldown=cooldown;
+        this.pellets=pellets; this.spread=spread; this.projectileType=projectileType;
+        this.ammo = ammo; this.maxAmmo = maxAmmo;
+    }
+}
+
+class SmokeParticle {
+    constructor(x,y){
+        this.x = x; this.y = y;
+        this.vx = (Math.random() - 0.5) * 0.5; this.vy = (Math.random() - 0.5) * 0.5 - 0.2;
+        this.radius = Math.random() * 10 + 15; this.life = 180; this.maxLife = 180; this.active = true;
+    }
+    update(){
+        this.life--; if(this.life <= 0) { this.active = false; return; }
+        this.x += this.vx; this.y += this.vy;
+    }
+    draw(ctx){
+        ctx.fillStyle = `rgba(180,180,180, ${ (this.life/this.maxLife) * 0.5 })`;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fill();
+    }
+}
+
+class SmokeCloud {
+    constructor(x,y,radius,duration){
+        this.x = x; this.y = y; this.radius = radius; this.life = duration;
+        this.particles = []; this.active = true;
+    }
+    update(){
+        this.life--;
+        if(this.life <= 0 && this.particles.length === 0){ this.active = false; return; }
+        if (this.life > 0 && Math.random() < 0.7) {
+             const spawnX = this.x + (Math.random() - 0.5) * this.radius * 1.5;
+             const spawnY = this.y + (Math.random() - 0.5) * this.radius * 1.5;
+             this.particles.push(new SmokeParticle(spawnX, spawnY));
         }
-
-        class Weapon {
-            constructor(name, type, damage, cooldown, pellets = 1, spread = 0) {
-                this.name = name; this.type = type; // "ranged" or "melee"
-                this.damage = damage; this.cooldown = cooldown;
-                this.pellets = pellets; // For shotguns
-                this.spread = spread; // Angle in radians
-            }
+        for(let i = this.particles.length - 1; i >= 0; i--){
+            this.particles[i].update();
+            if(!this.particles[i].active) this.particles.splice(i, 1);
         }
+    }
+    draw(ctx){ this.particles.forEach(p => p.draw(ctx)); }
+}
 
-        class Projectile {
-            constructor(x, y, targetX, targetY, firedBy, damage = 1, angleOffset = 0) {
-                this.x = x; this.y = y; this.width = damage > 1 ? 6 : 4; this.height = this.width;
-                this.speed = 25; this.active = true; this.firedBy = firedBy; this.damage = damage;
-                const angle = Math.atan2(targetY - y, targetX - x) + angleOffset;
-                this.velocityX = Math.cos(angle) * this.speed; this.velocityY = Math.sin(angle) * this.speed;
+class Explosion {
+    constructor(x,y,radius,damage,world,entities){
+        this.x = x; this.y = y; this.radius = radius;
+        this.damage = damage; this.active = true; this.life = 15;
+        this.applyDamage(world,entities);
+    }
+    applyDamage(world,entities){
+        const startTx = Math.floor((this.x - this.radius) / world.TILE_SIZE), endTx = Math.floor((this.x + this.radius) / world.TILE_SIZE);
+        const startTy = Math.floor((this.y - this.radius) / world.TILE_SIZE), endTy = Math.floor((this.y + this.radius) / world.TILE_SIZE);
+        for(let ty = startTy; ty <= endTy; ty++){ for(let tx = startTx; tx <= endTx; tx++){ if(Math.hypot(this.x - (tx * world.TILE_SIZE + world.TILE_SIZE/2), this.y - (ty*world.TILE_SIZE+world.TILE_SIZE/2)) < this.radius){ world.damageTile(tx,ty,this.damage); } } }
+        entities.forEach(e => {
+            if (!e || e.health <= 0) return;
+            const entCenterX = e.x + e.width/2, entCenterY = e.y + e.height/2;
+            const dist = Math.hypot(this.x - entCenterX, this.y - entCenterY);
+            if(dist < this.radius + (e.width+e.height)/4){
+                const damageFalloff = 1 - (dist/this.radius); e.damage(Math.ceil(this.damage * damageFalloff));
+                const angle = Math.atan2(entCenterY - this.y, entCenterX - this.x);
+                e.vx += Math.cos(angle) * 25 * damageFalloff; e.vy += Math.sin(angle) * 25 * damageFalloff;
             }
-            update(world, entities) {
-                if (!this.active) return;
-                this.x += this.velocityX; this.y += this.velocityY;
-                if (this.x < 0 || this.x > world.width * world.TILE_SIZE || this.y < 0 || this.y > world.height * world.TILE_SIZE) { this.active = false; return; }
-                const gridX = Math.floor(this.x / world.TILE_SIZE), gridY = Math.floor(this.y / world.TILE_SIZE);
-                if (world.getTile(gridX, gridY)) { world.damageTile(gridX, gridY, this.damage); this.active = false; return; }
-                for (const entity of entities) {
-                    if (entity.health > 0 && this.firedBy.occupant !== entity && this.firedBy !== entity && this.x > entity.x && this.x < entity.x + entity.width && this.y > entity.y && this.y < entity.y + entity.height) {
-                        entity.damage(this.damage); this.active = false; return;
-                    }
-                }
-            }
-            draw(ctx) { if (!this.active) return; ctx.fillStyle = this.damage > 2 ? 'orange' : 'yellow'; ctx.beginPath(); ctx.arc(this.x, this.y, this.width, 0, Math.PI * 2); ctx.fill(); }
-        }
-        
-        class PhysicsEntity {
-            constructor(x, y, TILE_SIZE) { this.x = x; this.y = y; this.TILE_SIZE = TILE_SIZE; this.velocityX = 0; this.velocityY = 0; this.isOnGround = false; this.gravity = 0.6; this.health = 1; this.maxHealth = 1; }
-            damage(amount) { this.health = Math.max(0, this.health - amount); }
-            applyPhysics(world) { this.velocityY += this.gravity; this.x += this.velocityX; this.handleCollision(world, 'horizontal'); this.y += this.velocityY; this.handleCollision(world, 'vertical'); }
-            handleCollision(world, direction) {
-                const left = this.x, right = this.x + this.width, top = this.y, bottom = this.y + this.height;
-                if (direction === 'horizontal') {
-                    for (let y = Math.floor(top / this.TILE_SIZE); y <= Math.floor((bottom - 1) / this.TILE_SIZE); y++) {
-                        if (this.velocityX < 0 && world.getTile(Math.floor(left / this.TILE_SIZE), y)) { this.x = (Math.floor(left / this.TILE_SIZE) + 1) * this.TILE_SIZE; this.velocityX = 0; break; }
-                        if (this.velocityX > 0 && world.getTile(Math.floor(right / this.TILE_SIZE), y)) { this.x = Math.floor(right / this.TILE_SIZE) * this.TILE_SIZE - this.width; this.velocityX = 0; break; }
-                    }
-                }
-                if (direction === 'vertical') {
-                    this.isOnGround = false;
-                    for (let x = Math.floor(left / this.TILE_SIZE); x <= Math.floor((right - 1) / this.TILE_SIZE); x++) {
-                        if (this.velocityY > 0 && world.getTile(x, Math.floor(bottom / this.TILE_SIZE))) { this.y = Math.floor(bottom / this.TILE_SIZE) * this.TILE_SIZE - this.height; this.velocityY = 0; this.isOnGround = true; break; }
-                        if (this.velocityY < 0 && world.getTile(x, Math.floor(top / this.TILE_SIZE))) { this.y = (Math.floor(top / this.TILE_SIZE) + 1) * this.TILE_SIZE; this.velocityY = 0; break; }
-                    }
-                }
-            }
-            drawHealthBar(ctx) {
-                if (this.health > 0 && this.health < this.maxHealth) {
-                    const barX = this.x, barY = this.y - 10, barWidth = this.width, barHeight = 5;
-                    ctx.fillStyle = '#333'; ctx.fillRect(barX, barY, barWidth, barHeight);
-                    ctx.fillStyle = 'green'; ctx.fillRect(barX, barY, barWidth * (this.health / this.maxHealth), barHeight);
-                }
-            }
-        }
-
-        class Player extends PhysicsEntity {
-            constructor(x, y, TILE_SIZE, color = 'red', isDummy = false) {
-                super(x, y, TILE_SIZE);
-                this.width = TILE_SIZE * 2; this.height = TILE_SIZE * 4; this.baseColor = color; this.color = color;
-                this.isDummy = isDummy; this.maxHealth = 10; this.health = this.maxHealth;
-                this.speed = isDummy ? 2.5 : 4; this.jumpStrength = 12;
-                this.isInVehicle = false;
-                
-                // Weapon Inventory
-                this.weapons = [
-                    new Weapon("Pistol", "ranged", 1, 15),
-                    new Weapon("Shotgun", "ranged", 2, 40, 3, 0.2), // 3 pellets, 0.2 radian spread
-                    new Weapon("Fist", "melee", 2, 20)
-                ];
-                this.currentWeaponIndex = 0;
-
-                // AI properties
-                this.meleeRange = this.isDummy ? this.width * 0.8 : 40; // Player fist has short range
-                this.meleeDamage = 2; this.meleeCooldown = 60; this.meleeTimer = 0;
-            }
-            getCurrentWeapon() { return this.weapons[this.currentWeaponIndex]; }
-            cycleWeapon(direction) {
-                this.currentWeaponIndex = (this.currentWeaponIndex + direction + this.weapons.length) % this.weapons.length;
-            }
-            handlePlayerInput(input) {
-                if (input.isKeyPressed('a') || input.isKeyPressed('arrowleft')) this.velocityX = -this.speed;
-                else if (input.isKeyPressed('d') || input.isKeyPressed('arrowright')) this.velocityX = this.speed;
-                else this.velocityX = 0;
-                if ((input.isKeyPressed('w') || input.isKeyPressed('arrowup') || input.isKeyPressed(' ')) && this.isOnGround) { this.velocityY = -this.jumpStrength; this.isOnGround = false; }
-            }
-            handleAI(targetEntity) {
-                if (!targetEntity || targetEntity.health <= 0) { this.velocityX = 0; return; }
-                if (this.meleeTimer > 0) this.meleeTimer--;
-                const distanceX = (targetEntity.x + targetEntity.width / 2) - (this.x + this.width / 2);
-                if (Math.abs(distanceX) < this.meleeRange && Math.abs(targetEntity.y - this.y) < this.height && this.isOnGround) {
-                    this.velocityX = 0; if (this.meleeTimer <= 0) this.performMelee(targetEntity);
-                } else { this.velocityX = Math.sign(distanceX) * this.speed; }
-            }
-            performMelee(target) { this.meleeTimer = this.meleeCooldown; target.damage(this.meleeDamage); this.color = 'white'; setTimeout(() => this.color = this.baseColor, 100); }
-            update(input, world, targetEntity) {
-                if (this.health <= 0) { this.velocityX = 0; this.applyPhysics(world); return; }
-                if (this.isInVehicle) return;
-                if (this.isDummy) this.handleAI(targetEntity); else this.handlePlayerInput(input);
-                this.applyPhysics(world);
-            }
-            draw(ctx) { if (this.isInVehicle) return; ctx.fillStyle = this.health > 0 ? this.color : '#555'; ctx.fillRect(this.x, this.y, this.width, this.height); this.drawHealthBar(ctx); }
-        }
-
-        class Vehicle extends PhysicsEntity {
-            constructor(x, y, TILE_SIZE) {
-                super(x, y, TILE_SIZE);
-                this.width = TILE_SIZE * 6; this.height = TILE_SIZE * 5; this.color = '#6c757d';
-                this.speed = 2.5; this.jumpStrength = 13;
-                this.maxHealth = 50; this.health = this.maxHealth;
-                this.occupant = null;
-                // Vehicle has its own powerful weapon
-                this.weapon = new Weapon("Cannon", "ranged", 3, 8);
-            }
-            handleInput(input) {
-                if (input.isKeyPressed('a') || input.isKeyPressed('arrowleft')) this.velocityX = -this.speed;
-                else if (input.isKeyPressed('d') || input.isKeyPressed('arrowright')) this.velocityX = this.speed;
-                else this.velocityX = 0;
-                if ((input.isKeyPressed('w') || input.isKeyPressed('arrowup') || input.isKeyPressed(' ')) && this.isOnGround) { this.velocityY = -this.jumpStrength; this.isOnGround = false; }
-            }
-            update(input, world) {
-                if (this.health <= 0) { this.eject(); this.velocityX = 0; } 
-                else if (this.occupant) this.handleInput(input); 
-                else this.velocityX = 0;
-                this.applyPhysics(world);
-            }
-            eject() {
-                if (!this.occupant) return;
-                const p = this.occupant; p.isInVehicle = false;
-                p.x = this.x + this.width / 2 - p.width / 2; p.y = this.y - p.height;
-                p.velocityY = -5; this.occupant = null;
-            }
-            draw(ctx) { ctx.fillStyle = this.health > 0 ? this.color : '#343a40'; ctx.fillRect(this.x, this.y, this.width, this.height); this.drawHealthBar(ctx); }
-        }
-
-        class World {
-            constructor(w, h, TILE_SIZE) { this.width = w; this.height = h; this.TILE_SIZE = TILE_SIZE; this.grid = []; this.BLOCK_MAX_HEALTH = 12; this.generate(); }
-            generate() {
-                for (let y = 0; y < this.height; y++) { this.grid[y] = []; for (let x = 0; x < this.width; x++) { if (y > this.height * 0.6) { let type = (y < this.height * 0.6 + 6) ? 'grass' : 'dirt'; this.grid[y][x] = { type, health: this.BLOCK_MAX_HEALTH }; } else this.grid[y][x] = null; } }
-                const groundY = Math.floor(this.height * 0.6) + 1, h = 10, w = 15, buildingX = this.width - w - 5, buildingY = groundY - h;
-                for (let y = buildingY; y < groundY; y++) { for (let x = buildingX; x < buildingX + w; x++) {
-                    const isWall = x === buildingX || x === buildingX + w - 1, isRoof = y === buildingY; this.grid[y][x] = null;
-                    if (isWall || isRoof) { const isDoorway = !isRoof && x === buildingX && y > buildingY + h - 4; if (!isDoorway) this.grid[y][x] = { type: 'dirt', health: this.BLOCK_MAX_HEALTH * 2 }; }
-                } }
-            }
-            getTile(x, y) { if (x >= 0 && x < this.width && y >= 0 && y < this.height) return this.grid[y][x]; return null; }
-            damageTile(x, y, dmg = 1) { const t = this.getTile(x, y); if (t) { t.health -= dmg; if (t.health <= 0) this.grid[y][x] = null; } }
-            draw(ctx) { for (let y = 0; y < this.height; y++) { for (let x = 0; x < this.width; x++) { const t = this.getTile(x, y); if (t) { switch (t.type) { case 'dirt': ctx.fillStyle = '#966A4A'; break; case 'grass': ctx.fillStyle = '#6A9E49'; break; } ctx.globalAlpha = t.health / this.BLOCK_MAX_HEALTH; ctx.fillRect(x * this.TILE_SIZE, y * this.TILE_SIZE, this.TILE_SIZE, this.TILE_SIZE); ctx.globalAlpha = 1.0; } } } }
-        }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            const canvas = document.getElementById('gameCanvas'), ctx = canvas.getContext('2d');
-            const restartButton = document.getElementById('restartButton'), weaponUI = document.getElementById('weaponUI');
-            const TILE_SIZE = 16, WORLD_WIDTH_TILES = 100, WORLD_HEIGHT_TILES = 60;
-            canvas.width = 1280; canvas.height = 720;
-            let input, world, player, dummyPlayer, vehicle, allEntities, projectiles, mousePos, isMouseDown, shootTimer;
-
-            function initializeGame() {
-                input = new InputHandler(); world = new World(WORLD_WIDTH_TILES, WORLD_HEIGHT_TILES, TILE_SIZE);
-                player = new Player(100, 100, TILE_SIZE, 'red', false);
-                const dummySpawnX = (WORLD_WIDTH_TILES - 10) * TILE_SIZE, dummySpawnY = (WORLD_HEIGHT_TILES * 0.6 - 3) * TILE_SIZE;
-                dummyPlayer = new Player(dummySpawnX, dummySpawnY, TILE_SIZE, 'blue', true);
-                vehicle = new Vehicle(250, 300, TILE_SIZE);
-                allEntities = [player, dummyPlayer, vehicle];
-                projectiles = []; mousePos = { x: 0, y: 0 }; isMouseDown = false; shootTimer = 0;
-                console.log("Game (re)started with Weapon Inventory!");
-            }
-            restartButton.addEventListener('click', initializeGame);
-            canvas.addEventListener('mousedown', () => isMouseDown = true); canvas.addEventListener('mouseup', () => isMouseDown = false);
-            canvas.addEventListener('mousemove', (e) => { const r = canvas.getBoundingClientRect(); mousePos.x = e.clientX - r.left; mousePos.y = e.clientY - r.top; });
-            
-            function handleWeaponSwitch() {
-                if (player.isInVehicle) return;
-                if (input.wasKeyJustPressed('q')) player.cycleWeapon(-1);
-                if (input.wasKeyJustPressed('e')) player.cycleWeapon(1);
-            }
-            function handleVehicleEntry() {
-                if (input.wasKeyJustPressed('c') && player.health > 0) {
-                    if (player.isInVehicle) { vehicle.eject(); } 
-                    else if (vehicle.health > 0 && !vehicle.occupant) {
-                        if (Math.hypot((player.x + player.width / 2) - (vehicle.x + vehicle.width / 2), (player.y + player.height / 2) - (vehicle.y + vehicle.height / 2)) < vehicle.width / 2) {
-                            player.isInVehicle = true; vehicle.occupant = player;
-                        }
-                    }
-                }
-            }
-            function drawCrosshair(ctx) { ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mousePos.x - 10, mousePos.y); ctx.lineTo(mousePos.x + 10, mousePos.y); ctx.moveTo(mousePos.x, mousePos.y - 10); ctx.lineTo(mousePos.x, mousePos.y + 10); ctx.stroke(); }
-            function updateUI() { weaponUI.textContent = "Weapon: " + (player.isInVehicle ? "Cannon" : player.getCurrentWeapon().name); }
-
-            function gameLoop() {
-                if (shootTimer > 0) shootTimer--;
-                if (isMouseDown && shootTimer <= 0) {
-                    const shooter = player.isInVehicle ? vehicle : player;
-                    const weapon = player.isInVehicle ? vehicle.weapon : shooter.getCurrentWeapon();
-                    if (shooter.health > 0) {
-                        if (weapon.type === "ranged") {
-                            for (let i = 0; i < weapon.pellets; i++) {
-                                const angleOffset = (Math.random() - 0.5) * weapon.spread;
-                                projectiles.push(new Projectile(shooter.x + shooter.width / 2, shooter.y + shooter.height / 2, mousePos.x, mousePos.y, shooter, weapon.damage, angleOffset));
-                            }
-                        } else { // Melee attack
-                            for (const entity of allEntities) {
-                                if (entity !== shooter && entity.health > 0 && Math.hypot((shooter.x + shooter.width/2) - (entity.x + entity.width/2), (shooter.y + shooter.height/2) - (entity.y + entity.height/2)) < shooter.meleeRange) {
-                                    entity.damage(weapon.damage);
-                                }
-                            }
-                        }
-                        shootTimer = weapon.cooldown;
-                    }
-                }
-                
-                handleWeaponSwitch(); handleVehicleEntry();
-                const targetEntity = player.isInVehicle ? vehicle : player;
-                player.update(input, world, targetEntity);
-                dummyPlayer.update(input, world, targetEntity);
-                vehicle.update(input, world);
-                projectiles.forEach(p => p.update(world, allEntities));
-                projectiles = projectiles.filter(p => p.active);
-                
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                world.draw(ctx); allEntities.forEach(e => e.draw(ctx));
-                projectiles.forEach(p => p.draw(ctx)); drawCrosshair(ctx); updateUI();
-                input.clearJustPressed();
-                requestAnimationFrame(gameLoop);
-            }
-            initializeGame(); requestAnimationFrame(gameLoop);
         });
-    </script>
+    }
+    update(){ this.life--; if(this.life <= 0) this.active = false; }
+    draw(ctx){ ctx.fillStyle = `rgba(255, ${Math.random()*150+100}, 0, ${this.life/15 * 0.8})`; ctx.beginPath(); ctx.arc(this.x, this.y, this.radius * (1 - this.life/15), 0, Math.PI*2); ctx.fill(); }
+}
+
+class Projectile {
+    constructor(x,y,targetX,targetY,firedBy,damage=1,angleOffset=0){
+        this.x=x; this.y=y; this.damage=damage; this.active=true;
+        this.radius = damage>2 ? 5 : 3;
+        const angle = Math.atan2(targetY-y,targetX-x) + angleOffset;
+        this.vx = Math.cos(angle)*25; this.vy = Math.sin(angle)*25;
+        this.firedBy = firedBy;
+    }
+    update(world, entities, pickups){
+        if(!this.active) return; this.x += this.vx; this.y += this.vy;
+        if(this.x < 0 || this.x >= world.width*world.TILE_SIZE || this.y < 0 || this.y >= world.height*world.TILE_SIZE){ this.active = false; return; }
+        const tx = Math.floor(this.x / world.TILE_SIZE), ty = Math.floor(this.y / world.TILE_SIZE);
+        const tile = world.getTile(tx,ty);
+        if(tile){ world.damageTile(tx,ty,this.damage); this.active = false; return; }
+        for(const pu of pickups){ if(pu.collected || pu.health <= 0) continue; if(this.x >= pu.x && this.x <= pu.x + pu.width && this.y >= pu.y && this.y <= pu.y + pu.height){ pu.health -= this.damage; if(pu.health <= 0) pu.collected = true; this.active = false; return; } }
+        for(const e of entities){
+            if(!e || e.health<=0 || this.firedBy === e || (e.isHostage && this.firedBy.isEnemy)) continue;
+            if(typeof e.getHeadRect === 'function'){
+                const hr = e.getHeadRect();
+                if(hr && this.x >= hr.x && this.x <= hr.x + hr.w && this.y >= hr.y && this.y <= hr.y + hr.h){
+                    if (e.hasHelmet) { e.hasHelmet = false; pickups.push(new Pickup(e.x, e.y - e.headRadius, 'helmet', null, e.TILE_SIZE)); } else { e.health = 0; }
+                    this.active = false; return;
+                }
+            }
+        }
+        for(const e of entities){
+            if(!e || e.health<=0 || this.firedBy === e || (e.isHostage && this.firedBy.isEnemy)) continue;
+            if(this.x > e.x && this.x < e.x + e.width && this.y > e.y && this.y < e.y + e.height){ e.damage(this.damage); this.active = false; return; }
+        }
+    }
+    draw(ctx){ if(!this.active) return; ctx.fillStyle = this.damage>2 ? 'orange' : 'yellow'; ctx.beginPath(); ctx.arc(this.x,this.y,this.radius,0,Math.PI*2); ctx.fill(); }
+}
+
+class PhysicsEntity {
+    constructor(x,y,tileSize){
+        this.x=x; this.y=y; this.TILE_SIZE=tileSize; this.vx=0; this.vy=0; this.isOnGround=false;
+        this.gravity = 0.6; this.health = 1; this.maxHealth = 1; this.yLast = y;
+    }
+    damage(n){ this.health = Math.max(0,this.health - n); }
+    applyPhysics(world){
+        this.yLast = this.y; this.vy += this.gravity; this.x += this.vx;
+        this.handleCollision(world,'horizontal'); this.y += this.vy; this.handleCollision(world,'vertical');
+    }
+    handleCollision(world,direction){
+        const left = this.x, right = this.x + this.width, top = this.y, bottom = this.y + this.height;
+        if(direction === 'horizontal'){ for(let ty = Math.floor(top/this.TILE_SIZE); ty <= Math.floor((bottom-1)/this.TILE_SIZE); ty++){ if(this.vx < 0 && world.getTile(Math.floor(left/this.TILE_SIZE),ty) && world.getTile(Math.floor(left/this.TILE_SIZE),ty).type !== 'platform'){ this.x = (Math.floor(left/this.TILE_SIZE)+1)*this.TILE_SIZE; this.vx = 0; break; } if(this.vx > 0 && world.getTile(Math.floor(right/this.TILE_SIZE),ty) && world.getTile(Math.floor(right/this.TILE_SIZE),ty).type !== 'platform'){ this.x = Math.floor(right/this.TILE_SIZE)*this.TILE_SIZE - this.width; this.vx = 0; break; } } }
+        if(direction === 'vertical'){
+            this._landedThisFrame = false; let lastOnPlatform = false;
+            if(this.vy > 0) { for(let tx = Math.floor(left/this.TILE_SIZE); tx <= Math.floor((right-1)/this.TILE_SIZE); tx++){ const tile = world.getTile(tx,Math.floor(bottom/this.TILE_SIZE)); if(tile){ if(tile.type === 'platform' && (this.yLast + this.height) > tile.y * this.TILE_SIZE + 1) continue; this.y = Math.floor(bottom/this.TILE_SIZE)*this.TILE_SIZE - this.height; this.vy = 0; if(!this.isOnGround) this._landedThisFrame = true; this.isOnGround = true; if(tile.type === 'platform') lastOnPlatform = true; break; } } }
+            else if (this.vy < 0) { for(let tx = Math.floor(left/this.TILE_SIZE); tx <= Math.floor((right-1)/this.TILE_SIZE); tx++){ if(world.getTile(tx,Math.floor(top/this.TILE_SIZE)) && world.getTile(tx,Math.floor(top/this.TILE_SIZE)).type !== 'platform'){ this.y = (Math.floor(top/this.TILE_SIZE)+1)*this.TILE_SIZE; this.vy = 0; break; } } }
+            const midX = Math.floor((left+right)/2/this.TILE_SIZE), belowY = Math.floor((bottom+1)/this.TILE_SIZE);
+            const tileBelow = world.getTile(midX, belowY);
+            if(!tileBelow || (tileBelow && tileBelow.type === 'platform' && this.vy > 0)) { this.isOnGround = false; }
+            if(this.lastOnPlatform !== undefined) this.lastOnPlatform = lastOnPlatform;
+        }
+    }
+}
+
+class ThrownGrenade extends PhysicsEntity {
+    constructor(x,y,vx,vy,damage,ts,type){
+        super(x,y,ts); this.vx = vx; this.vy = vy; this.damage = damage;
+        this.width = ts*0.5; this.height = ts*0.5; this.fuse = 90;
+        this.type = type; this.bounciness = 0.6; this.explosionRadius = ts * 5; this.active = true;
+    }
+    update(world, entities, pickups, explosions, smokeClouds) {
+        if (!this.active) return; this.fuse--;
+        if (this.fuse <= 0) {
+            if(this.type === 'grenade') explosions.push(new Explosion(this.x, this.y, this.explosionRadius, this.damage, world, entities));
+            else if (this.type === 'smoke') smokeClouds.push(new SmokeCloud(this.x, this.y, this.explosionRadius, 400));
+            this.active = false; return;
+        }
+        this.applyPhysics(world);
+    }
+    handleCollision(world, direction) {
+        if(direction === 'horizontal'){ const left = this.x, right = this.x + this.width, top = this.y, bottom = this.y + this.height; if(this.vx < 0 && world.getTile(Math.floor(left/this.TILE_SIZE),Math.floor((top+bottom-1)/2/this.TILE_SIZE))){ this.vx *= -this.bounciness; this.x = (Math.floor(left/this.TILE_SIZE)+1)*this.TILE_SIZE; } if(this.vx > 0 && world.getTile(Math.floor(right/this.TILE_SIZE),Math.floor((top+bottom-1)/2/this.TILE_SIZE))){ this.vx *= -this.bounciness; this.x = Math.floor(right/this.TILE_SIZE)*this.TILE_SIZE - this.width; } }
+        if(direction === 'vertical'){ const left = this.x, right = this.x + this.width, top = this.y, bottom = this.y + this.height; if(this.vy > 0 && world.getTile(Math.floor((left+right-1)/2/this.TILE_SIZE), Math.floor(bottom/this.TILE_SIZE))){ this.vy *= -this.bounciness; if(Math.abs(this.vy)<1) this.vy = 0; this.vx *= 0.9; this.y = Math.floor(bottom/this.TILE_SIZE)*this.TILE_SIZE - this.height; } if(this.vy < 0 && world.getTile(Math.floor((left+right-1)/2/this.TILE_SIZE), Math.floor(top/this.TILE_SIZE))){ this.vy *= -this.bounciness; this.y = (Math.floor(top/this.TILE_SIZE)+1)*this.TILE_SIZE; } }
+    }
+    draw(ctx) { const color = this.type === 'smoke' ? '#ccc' : 'darkgreen'; ctx.fillStyle = (this.fuse < 30 && this.fuse % 10 < 5) ? 'white' : color; ctx.beginPath(); ctx.arc(this.x + this.width/2, this.y + this.height/2, this.width, 0, Math.PI * 2); ctx.fill(); }
+}
+
+class Player extends PhysicsEntity {
+    constructor(x,y,ts,color='red',isEnemy=false, isHostage=false){
+        super(x,y,ts);
+        this.width = ts*2; this.bodyHeight = ts*3; this.headRadius = this.width * 0.4;
+        this.originalHeight = this.bodyHeight; this.duckHeight = this.bodyHeight * 0.5; this.height = this.originalHeight; 
+        this.color = color; this.isEnemy=isEnemy; this.isHostage=isHostage; this.isInVehicle=false;
+        this.isDucking = false; this.hasHelmet = !isHostage; this.acceleration = 0.4; this.friction=0.88; this.maxSpeed = 4; this.jumpStrength = 12;
+        this.sprintMultiplier = 2; this.sprintTimer = 0; this.lastMoveDirection = 0;
+        this.isWallSliding=false; this.wallSlideSpeed = 2; this.wallJumpLockTimer=0; this.wallJumpLockDuration=10; this.wallSlideDirection=0;
+        this.recentWallJumpTimer = 0; this.justLanded = false;
+        this.weapons = isHostage ? [] : [ new Weapon("Pistol","ranged",1,15,1,0,'bullet',Infinity,Infinity) ];
+        this.currentWeaponIndex = 0; this.maxHealth = 10; this.health = this.maxHealth;
+        this.shootTimer = 0; this.patrolDir = 1; this.patrolTimer = 120;
+    }
+    getCurrentWeapon(){ return this.weapons[this.currentWeaponIndex]; }
+    cycleWeapon(dir){ this.currentWeaponIndex = (this.currentWeaponIndex + dir + this.weapons.length) % this.weapons.length; }
+    getHeadRect(){ if(this.isHostage) return null; const headX = this.x + this.width / 2 - this.headRadius; const bodyDrawY = this.y; const headY = bodyDrawY - this.headRadius * 1.8 + (this.originalHeight - this.height); return { x: headX, y: headY, w: this.headRadius * 2, h: this.headRadius * 2 }; }
+    checkForWallSlide(world){ if(this.isEnemy || this.isHostage || this.isOnGround || this.vy < 0){ this.isWallSliding=false; return; } this.isWallSliding=false; this.wallSlideDirection=0; const leftTileX = Math.floor((this.x - 1) / this.TILE_SIZE), rightTileX = Math.floor((this.x + this.width) / this.TILE_SIZE), topTileY = Math.floor(this.y / this.TILE_SIZE), bottomTileY = Math.floor((this.y + this.height - 1) / this.TILE_SIZE); for(let ty = topTileY; ty <= bottomTileY; ty++){ if(world.getTile(leftTileX, ty) && world.getTile(leftTileX, ty).type !== 'platform' && this.x <= (leftTileX+1)*this.TILE_SIZE + 2){ this.isWallSliding = true; this.wallSlideDirection = -1; break; } if(world.getTile(rightTileX, ty) && world.getTile(rightTileX, ty).type !== 'platform' && (this.x + this.width) >= rightTileX*this.TILE_SIZE - 2){ this.isWallSliding = true; this.wallSlideDirection = 1; break; } } }
+    handleDucking(input, world){
+        const wantsToDuck = input.isKeyPressed('s') || input.isKeyPressed('arrowdown');
+        if (wantsToDuck && this.isOnGround && this.lastOnPlatform) { this.y += 2; this.isOnGround = false; return; }
+        const heightBefore = this.height;
+        if(wantsToDuck){ if(!this.isDucking){ this.height = this.duckHeight; this.isDucking = true; if(!this.isOnGround) { this.vx *= 0.5; } }
+        } else if(this.isDucking){
+            let blocked = false; const standUpY = this.y - (this.originalHeight - this.duckHeight);
+            for(let ty = Math.floor(standUpY / this.TILE_SIZE); ty < Math.floor(this.y / this.TILE_SIZE); ty++) { for(let tx = Math.floor(this.x / this.TILE_SIZE); tx <= Math.floor((this.x+this.width-1) / this.TILE_SIZE); tx++) { if (world.getTile(tx, ty) && world.getTile(tx,ty).type !== 'platform') { blocked = true; break; } } if (blocked) break; }
+            if(!blocked){ this.height = this.originalHeight; this.isDucking = false; }
+        }
+        if (this.height !== heightBefore) { this.y += heightBefore - this.height; }
+    }
+    handlePlayerInput(input){
+        if(this.wallJumpLockTimer > 0){ this.wallJumpLockTimer--; } else {
+            let moveDir = 0;
+            if(input.isKeyPressed('a') || input.isKeyPressed('arrowleft')) moveDir = -1; else if(input.isKeyPressed('d') || input.isKeyPressed('arrowright')) moveDir = 1;
+            let currentMaxSpeed = this.sprintTimer > 120 ? this.maxSpeed*this.sprintMultiplier : this.maxSpeed;
+            if(this.isDucking) { currentMaxSpeed *= 0.5; }
+            if(moveDir !== 0){
+                if(this.recentWallJumpTimer > 0){ this.vx = moveDir * currentMaxSpeed; this.sprintTimer = Math.max(this.sprintTimer, 120); }
+                else { this.vx += moveDir*this.acceleration; if(Math.abs(this.vx) > currentMaxSpeed) this.vx = moveDir*currentMaxSpeed; }
+                if(moveDir === this.lastMoveDirection && !this.isDucking) this.sprintTimer++; else this.sprintTimer=0;
+            } else { if(!this.justLanded) { this.vx *= this.friction; if(Math.abs(this.vx) < 0.08) this.vx = 0; } this.sprintTimer = 0; } this.lastMoveDirection = moveDir;
+        }
+        if(input.wasKeyJustPressed('w') || input.wasKeyJustPressed('arrowup') || input.wasKeyJustPressed(' ')){
+            if(this.isOnGround && !this.isDucking){ this.vy = -this.jumpStrength; this.isOnGround=false; }
+            else if(this.isWallSliding){ this.vy = -this.jumpStrength*0.9; this.vx = -this.wallSlideDirection * this.maxSpeed * 1.5; this.wallJumpLockTimer = this.wallJumpLockDuration; this.isWallSliding = false; this.recentWallJumpTimer = 20; }
+        }
+    }
+    handleAI(player, hostage, world, projectiles, smokeClouds){
+        if(!player || player.health<=0){ this.vx=0; return; }
+        const defenseRadius = 300; const distToPlayer = Math.hypot(this.x - player.x, this.y - player.y);
+        const startX = this.x + this.width/2, startY = this.y, endX = player.x + player.width/2, endY = player.y;
+        let hasLOS = true; const steps = 50;
+        for(let i=1; i<=steps; i++) {
+            const checkX = startX + (endX - startX) * i/steps, checkY = startY + (endY - startY) * i/steps;
+            if(world.getTile(Math.floor(checkX/world.TILE_SIZE), Math.floor(checkY/world.TILE_SIZE))) { hasLOS = false; break; }
+            for(const smoke of smokeClouds) { if (Math.hypot(checkX - smoke.x, checkY - smoke.y) < smoke.radius) { hasLOS = false; break; } }
+            if(!hasLOS) break;
+        }
+        if(distToPlayer < defenseRadius && hasLOS && this.shootTimer <= 0) {
+            this.vx = 0; projectiles.push(new Projectile(this.x + this.width/2, this.y, player.x + player.width/2, player.y + player.height/2, this, this.getCurrentWeapon().damage)); this.shootTimer = this.getCurrentWeapon().cooldown;
+        } else {
+            this.patrolTimer--; if(this.patrolTimer <= 0) { this.patrolDir *= -1; this.patrolTimer = Math.random()*120+120; }
+            const distToHostage = Math.hypot(this.x - hostage.x, this.y - hostage.y);
+            if (distToHostage > 80) { this.vx = Math.sign(hostage.x - this.x) * 1.5; } else { this.vx = this.patrolDir * 1; }
+        }
+    }
+    update(input, world, context, projectiles, smokeClouds, pickups){
+        if(this.health<=0){ this.vx = 0; this.applyPhysics(world); return; }
+        if(this.isInVehicle) return;
+        if(this.shootTimer > 0) this.shootTimer--;
+        if(this.isEnemy){ this.handleAI(context.player, context.hostage, world, projectiles, smokeClouds); }
+        else if (this.isHostage) { this.vx = 0; }
+        else { 
+            this.handleDucking(input, world); this.handlePlayerInput(input); 
+            for (let i = pickups.length - 1; i >= 0; i--) {
+                const pu = pickups[i];
+                if (pu.pickupType === 'ammo' && !pu.collected) {
+                    if (this.x < pu.x + pu.width && this.x + this.width > pu.x && this.y < pu.y + pu.height && this.y + this.height > pu.y) {
+                        this.weapons.forEach(w => { if (w.ammo !== Infinity) w.ammo = Math.min(w.maxAmmo, w.ammo + pu.ammoAmount); });
+                        pu.collected = true;
+                    }
+                }
+            }
+        }
+        this.applyPhysics(world);
+        if(!this.isEnemy && !this.isHostage) { if(this._landedThisFrame && this.recentWallJumpTimer > 0) this.justLanded = true; else this.justLanded = false; this.checkForWallSlide(world); if(this.isWallSliding && this.vy > this.wallSlideSpeed) this.vy = this.wallSlideSpeed; if(this.recentWallJumpTimer > 0) this.recentWallJumpTimer--; }
+    }
+    draw(ctx){
+        if(this.isInVehicle) return;
+        ctx.fillStyle = this.isWallSliding ? '#ffc107' : (this.health>0 ? this.color : '#555');
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        if(!this.isHostage){
+            const hr = this.getHeadRect();
+            ctx.save(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(hr.x + hr.w/2, hr.y + hr.h/2, hr.w/2, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke();
+            if(this.hasHelmet) { ctx.fillStyle = 'rgba(128,128,128,0.5)'; ctx.beginPath(); ctx.arc(hr.x + hr.w/2, hr.y + hr.h/2, hr.w/2 + 2, 0, Math.PI*2); ctx.fill(); }
+            ctx.restore();
+            const healthBarY = hr.y - 10;
+            if(this.health>0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, healthBarY, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, healthBarY, bw*(this.health/this.maxHealth), bh); }
+        } else { if(this.health>0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, this.y-10, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, this.y-10, bw*(this.health/this.maxHealth), bh); } }
+    }
+}
+class Vehicle extends PhysicsEntity {
+    constructor(x,y,ts){ super(x,y,ts); this.width = ts*6; this.height = ts*5; this.color = '#6c757d'; this.maxSpeed = 2.5; this.jumpStrength = 13; this.maxHealth = 50; this.health = this.maxHealth; this.occupant = null; this.weapon = new Weapon("Cannon","ranged",3,8); this.acceleration = 0.2; this.friction = 0.95; }
+    handleInput(input){ let dir=0; if(input.isKeyPressed('a')||input.isKeyPressed('arrowleft')) dir=-1; else if(input.isKeyPressed('d')||input.isKeyPressed('arrowright')) dir=1; if(dir!==0){ this.vx += dir*this.acceleration; if(Math.abs(this.vx)>this.maxSpeed) this.vx = dir*this.maxSpeed; } else this.vx *= this.friction; if((input.isKeyPressed('w')||input.isKeyPressed('arrowup')||input.isKeyPressed(' ')) && this.isOnGround){ this.vy = -this.jumpStrength; this.isOnGround=false; } }
+    update(input,world){ if(this.health<=0){ if(this.occupant) this.eject(); this.vx=0; } else if(this.occupant) this.handleInput(input); else this.vx *= this.friction; this.applyPhysics(world); }
+    eject(){ if(!this.occupant) return; const p = this.occupant; p.isInVehicle=false; p.x = this.x + this.width/2 - p.width/2; p.y = this.y - p.height; p.vy = -5; this.occupant=null; }
+    draw(ctx){ ctx.fillStyle = this.health>0 ? this.color : '#333'; ctx.fillRect(this.x,this.y,this.width,this.height); const healthBarY = this.y - 10; if(this.health>0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, healthBarY, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, healthBarY, bw*(this.health/this.maxHealth), bh); } }
+}
+class Pickup {
+    constructor(x,y,pickupType,data,ts){
+        this.x = x; this.y = y; this.width = ts; this.height = ts; this.vx = 0; this.vy = 0; this.gravity = 0.6; this.collected = false;
+        this.pickupType = pickupType; this.weaponData = null; this.ammoAmount = 0;
+        if(pickupType === 'weapon') this.weaponData = data;
+        if(pickupType === 'ammo') this.ammoAmount = data;
+        this.health = 10;
+    }
+    update(world){
+        if(this.collected) return;
+        if(this.pickupType === 'ammo') return;
+        this.vy += this.gravity; this.x += this.vx; this.y += this.vy;
+        const tile = world.getTile(Math.floor((this.x+this.width/2)/world.TILE_SIZE), Math.floor((this.y+this.height)/world.TILE_SIZE));
+        if(tile){ this.y = Math.floor((this.y+this.height)/world.TILE_SIZE)*world.TILE_SIZE - this.height; this.vy=0; this.vx*=0.6; }
+        if(this.y > world.height * world.TILE_SIZE + 500 || this.health <= 0) this.collected = true;
+    }
+    draw(ctx){
+        if(this.collected) return;
+        ctx.save();
+        if(this.pickupType === 'weapon' && this.weaponData.projectileType === 'grenade') { ctx.fillStyle = 'darkgreen'; ctx.beginPath(); ctx.arc(this.x + this.width/2, this.y + this.height/2, this.width/1.5, 0, Math.PI*2); ctx.fill(); }
+        else if (this.pickupType === 'weapon' && this.weaponData.projectileType === 'smoke') { ctx.fillStyle = '#ccc'; ctx.beginPath(); ctx.arc(this.x + this.width/2, this.y + this.height/2, this.width/1.5, 0, Math.PI*2); ctx.fill(); }
+        else if (this.pickupType === 'helmet') { ctx.fillStyle = 'grey'; ctx.beginPath(); ctx.arc(this.x + this.width/2, this.y + this.height/2, this.width/2, Math.PI, 2*Math.PI); ctx.fill(); }
+        else if (this.pickupType === 'ammo') { ctx.fillStyle = 'darkgreen'; ctx.fillRect(this.x, this.y, this.width, this.height); ctx.fillStyle = 'white'; ctx.font = '12px sans-serif'; ctx.textAlign='center'; ctx.fillText('A', this.x + this.width/2, this.y + this.height - 4); }
+        else { ctx.fillStyle = '#ffb'; ctx.fillRect(this.x, this.y, this.width, this.height); }
+        ctx.restore();
+    }
+}
+class World { constructor(w,h,tileSize){ this.width = w; this.height = h; this.TILE_SIZE = tileSize; this.BLOCK_BASE_HEALTH = 6; this.grid = []; this.generate(); } generate(){ this.grid = Array(this.height).fill(null).map(() => Array(this.width).fill(null)); const groundLevel = this.height * 0.6; for(let y=0; y<this.height; y++){ for(let x=0; x<this.width; x++){ if(y > groundLevel){ this.grid[y][x] = { type: (y < groundLevel + 6) ? 'grass' : 'dirt', health: this.BLOCK_BASE_HEALTH, maxHealth: this.BLOCK_BASE_HEALTH }; } } } const groundY = Math.floor(groundLevel) + 1; const bh=10, bw=15, bx=this.width-bw-20, by=groundY-bh; for(let y=by; y<groundY; y++){ for(let x=bx; x<bx+bw; x++){ if(x===bx || x===bx+bw-1 || y===by){ if(!(x>bx+2 && x<bx+bw-3 && y>by+2)) this.grid[y][x] = { type:'dirt', health:this.BLOCK_BASE_HEALTH*3, maxHealth:this.BLOCK_BASE_HEALTH*3 }; } } } const wallX = 6, wallH = 15; for(let y = groundY - wallH; y < groundY; y++){ this.grid[y][wallX] = { type:'dirt', health: this.BLOCK_BASE_HEALTH*2, maxHealth: this.BLOCK_BASE_HEALTH*2 }; } for(let i = 0; i < 5; i++) { this.grid[groundY - 5 - (i*3)][10 + i*2] = { type: 'platform', health: 4, maxHealth: 4}; this.grid[groundY - 5 - (i*3)][11 + i*2] = { type: 'platform', health: 4, maxHealth: 4}; } } getTile(x,y){ if(x<0||x>=this.width||y<0||y>=this.height) return null; return this.grid[y][x]; } damageTile(x,y,dmg=1){ const t = this.getTile(x,y); if(t){ t.health -= dmg; if(t.health <= 0) this.grid[y][x] = null; } } draw(ctx){ for(let y=0;y<this.height;y++){ for(let x=0;x<this.width;x++){ const t = this.getTile(x,y); if(t){ if(t.type==='platform') {ctx.fillStyle = '#C2B280';} else {ctx.fillStyle = t.type==='dirt'?'#966A4A':'#6A9E49';} ctx.globalAlpha = Math.max(0.15, t.health/t.maxHealth); ctx.fillRect(x*this.TILE_SIZE, y*this.TILE_SIZE, this.TILE_SIZE, this.TILE_SIZE); ctx.globalAlpha = 1; if(t.maxHealth > this.BLOCK_BASE_HEALTH && t.type !== 'platform'){ ctx.strokeStyle='#000a'; ctx.strokeRect(x*this.TILE_SIZE+1,y*this.TILE_SIZE+1,this.TILE_SIZE-2,this.TILE_SIZE-2); } } } } } }
+class Camera { constructor(canvas){ this.canvas = canvas; this.x = 0; this.y = 0; this.zoom = 1; this.panSpeed = 0.08; } update(targetEntity){ const jumpZoom = targetEntity.isOnGround ? 1.0 : 0.85; const sprintMultiplier = (targetEntity instanceof Player && !targetEntity.isEnemy) ? targetEntity.sprintMultiplier : 1; const maxSprintSpeed = targetEntity.maxSpeed * sprintMultiplier; const speedPercent = Math.min(Math.abs(targetEntity.vx) / (maxSprintSpeed || 1), 1); const speedZoom = 1.0 - (speedPercent * 0.15); const targetZoom = Math.min(jumpZoom, speedZoom); this.zoom += (targetZoom - this.zoom) * 0.06; const targetX = targetEntity.x + targetEntity.width/2; const targetY = targetEntity.y - targetEntity.height/2; this.x += (targetX - this.x) * this.panSpeed; this.y += (targetY - this.y) * this.panSpeed; } }
+
+document.addEventListener('DOMContentLoaded', ()=> {
+    const mainMenu = document.getElementById('mainMenu');
+    const quickGameButton = document.getElementById('quickGameButton');
+    const canvas = document.getElementById('gameCanvas');
+    const restartButton = document.getElementById('restartButton');
+    const weaponUI = document.getElementById('weaponUI');
+    const ctx = canvas.getContext('2d');
+    
+    const TILE_SIZE = 16, WORLD_W = 300, WORLD_H = 60;
+    canvas.width = 1280; canvas.height = 720;
+    
+    let input, world, player, enemy, vehicle, hostage, camera, allEntities, projectiles, mousePos, isMouseDown, shootTimer, pickups, explosions, smokeClouds;
+
+    function initializeGame(){
+        input = new InputHandler(); world = new World(WORLD_W, WORLD_H, TILE_SIZE);
+        const spawnX = 15 * TILE_SIZE, groundY = Math.floor(WORLD_H * 0.6) * TILE_SIZE;
+        player = new Player(spawnX, groundY - (16*3), TILE_SIZE, 'red', false, false);
+        const buildingX = WORLD_W - 15 - 20;
+        enemy = new Player((buildingX + 10) * TILE_SIZE, groundY - (16*3), TILE_SIZE, 'blue', true, false);
+        hostage = new Player((buildingX + 5) * TILE_SIZE, groundY - (16*3), TILE_SIZE, 'yellow', false, true);
+        vehicle = new Vehicle(spawnX + 200, groundY - (TILE_SIZE*5), TILE_SIZE);
+        pickups = [];
+        pickups.push(new Pickup(18 * TILE_SIZE, groundY - TILE_SIZE*5, 'weapon', new Weapon("Grenade","ranged",12,70,1,0,'grenade', 4, 4), TILE_SIZE));
+        pickups.push(new Pickup(22 * TILE_SIZE, groundY - TILE_SIZE*5, 'weapon', new Weapon("Smoke Grenade","ranged",0,70,1,0,'smoke', 2, 2), TILE_SIZE));
+        pickups.push(new Pickup(26 * TILE_SIZE, groundY - TILE_SIZE*5, 'weapon', new Weapon("Shotgun","ranged",2,40,3,0.2,'bullet',8,16), TILE_SIZE));
+        pickups.push(new Pickup(vehicle.x + 40, groundY - TILE_SIZE, 'ammo', 10, TILE_SIZE));
+
+        allEntities = [player, enemy, vehicle, hostage];
+        projectiles = []; explosions = []; smokeClouds = []; mousePos = {x:0,y:0}; isMouseDown = false; shootTimer = 0; camera = new Camera(canvas);
+    }
+    
+    function startGame() {
+        mainMenu.classList.add('hidden');
+        canvas.classList.remove('hidden');
+        restartButton.classList.remove('hidden');
+        weaponUI.classList.remove('hidden');
+        
+        initializeGame();
+        gameLoop();
+    }
+
+    quickGameButton.addEventListener('click', startGame);
+    restartButton.addEventListener('click', initializeGame);
+    
+    canvas.addEventListener('mousedown', ()=> isMouseDown = true); canvas.addEventListener('mouseup', ()=> isMouseDown = false);
+    canvas.addEventListener('mousemove', e => { const r = canvas.getBoundingClientRect(); mousePos.x = e.clientX - r.left; mousePos.y = e.clientY - r.top; });
+    
+    function drawCrosshair(ctx){ ctx.strokeStyle = 'white'; ctx.beginPath(); ctx.moveTo(mousePos.x - 8, mousePos.y); ctx.lineTo(mousePos.x + 8, mousePos.y); ctx.moveTo(mousePos.x, mousePos.y - 8); ctx.lineTo(mousePos.x, mousePos.y + 8); ctx.stroke(); }
+    
+    function updateUI(){
+        let uiText = "Weapon: ";
+        const currentWeapon = player.isInVehicle ? vehicle.weapon : player.getCurrentWeapon();
+        if(currentWeapon){
+            uiText += currentWeapon.name;
+            if(currentWeapon.ammo !== undefined && currentWeapon.ammo !== Infinity){
+                uiText += ` | ${currentWeapon.ammo}/${currentWeapon.maxAmmo}`;
+            } else if (currentWeapon.name === 'Pistol') {
+                 uiText += ` | ∞`;
+            }
+        } else {
+            uiText += 'Fist';
+        }
+        weaponUI.textContent = uiText;
+    }
+
+    function gameLoop(){
+        if(shootTimer > 0) shootTimer--;
+        if(isMouseDown && shootTimer <= 0){
+            const shooter = player.isInVehicle ? vehicle : player;
+            const weapon = shooter.weapon || (shooter.getCurrentWeapon && shooter.getCurrentWeapon());
+            if(shooter.health > 0 && weapon && weapon.ammo > 0){
+                const worldMouseX = (mousePos.x - canvas.width/2)/camera.zoom + camera.x, worldMouseY = (mousePos.y - canvas.height/2)/camera.zoom + camera.y;
+                const launchX = shooter.x+shooter.width/2, launchY = (shooter.getHeadRect? shooter.getHeadRect().y : shooter.y + shooter.height/2) || shooter.y + shooter.height/2;
+                if(weapon.projectileType === 'grenade' || weapon.projectileType === 'smoke') {
+                    const angle = Math.atan2(worldMouseY - launchY, worldMouseX - launchX);
+                    projectiles.push(new ThrownGrenade(launchX, launchY, Math.cos(angle)*15, Math.sin(angle)*15, weapon.damage, TILE_SIZE, weapon.projectileType));
+                } else {
+                    for(let i=0;i<weapon.pellets;i++){ projectiles.push(new Projectile(launchX, launchY, worldMouseX, worldMouseY, shooter, weapon.damage, (Math.random()-0.5) * weapon.spread)); }
+                }
+                if(weapon.ammo !== Infinity) weapon.ammo--;
+                shootTimer = weapon.cooldown;
+            }
+        }
+        if(input.wasKeyJustPressed('c') && player.health > 0 && !player.isInVehicle){
+            const PICKUP_RANGE = 48; let pickedUpItem = false;
+            for(let i = pickups.length - 1; i >= 0; i--){
+                const pu = pickups[i]; if(pu.collected || pu.health <= 0 || pu.pickupType === 'ammo') continue;
+                if(Math.hypot((player.x+player.width/2)-(pu.x+pu.width/2), (player.y+player.height/2)-(pu.y+pu.height/2)) <= PICKUP_RANGE){
+                    if(pu.pickupType === 'weapon'){ player.weapons.push(pu.weaponData); player.currentWeaponIndex = player.weapons.length - 1; pickedUpItem = true; }
+                    else if (pu.pickupType === 'helmet' && !player.hasHelmet) { player.hasHelmet = true; pickedUpItem = true;}
+                    if (pickedUpItem) { pu.collected = true; break; }
+                }
+            }
+            if(!pickedUpItem){
+                const curWeapon = player.getCurrentWeapon();
+                if(curWeapon && curWeapon.name !== 'Fist'){
+                    const removed = player.weapons.splice(player.currentWeaponIndex,1)[0];
+                    if(player.currentWeaponIndex >= player.weapons.length) player.currentWeaponIndex = player.weapons.length - 1; if(player.currentWeaponIndex < 0) player.currentWeaponIndex = 0;
+                    const p = new Pickup(player.x+player.width/2-TILE_SIZE/2, player.y-player.height*0.25, 'weapon', removed, TILE_SIZE);
+                    p.vx = (player.vx || (player.lastMoveDirection*2) || 2); p.vy = -7; pickups.push(p);
+                }
+            }
+        }
+        if(input.wasKeyJustPressed('v') && player.health > 0){ if(player.isInVehicle){ vehicle.eject(); } else if(Math.hypot((player.x+player.width/2)-(vehicle.x+vehicle.width/2),(player.y+player.height/2)-(vehicle.y+vehicle.height/2))<vehicle.width*1.2 && !vehicle.occupant){ player.isInVehicle=true; vehicle.occupant=player; } }
+        if(!player.isInVehicle){ if(input.wasKeyJustPressed('q'))player.cycleWeapon(-1); if(input.wasKeyJustPressed('e'))player.cycleWeapon(1); }
+        
+        const gameContext = { player, enemy, hostage };
+        allEntities.forEach(e => e.update(input, world, gameContext, projectiles, smokeClouds, pickups));
+        [...projectiles, ...pickups, ...explosions, ...smokeClouds].forEach(o => o.update(world, allEntities, pickups, explosions, smokeClouds));
+        projectiles = projectiles.filter(p => p.active); pickups = pickups.filter(p => !p.collected); explosions = explosions.filter(e => e.active); smokeClouds = smokeClouds.filter(s => s.active);
+        
+        const cameraTarget = player.isInVehicle ? vehicle : player;
+        camera.update(cameraTarget);
+
+        ctx.clearRect(0,0,canvas.width,canvas.height); ctx.save();
+        ctx.translate(canvas.width/2, canvas.height/2); ctx.scale(camera.zoom, camera.zoom);
+        ctx.translate(-camera.x, -camera.y);
+        world.draw(ctx); allEntities.forEach(e => e.draw(ctx)); projectiles.forEach(p => p.draw(ctx)); pickups.forEach(pu => pu.draw(ctx)); explosions.forEach(e => e.draw(ctx)); smokeClouds.forEach(s => s.draw(ctx));
+        ctx.restore();
+        drawCrosshair(ctx); updateUI();
+        input.clearJustPressed();
+        requestAnimationFrame(gameLoop);
+    }
+});
+</script>
 </body>
 </html>
