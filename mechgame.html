@@ -3,52 +3,68 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Mech Game - Win Condition</title>
+    <title>Mech Game - Vehicle Fix</title>
     <style>
         body { margin:0; background:#111; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:white; }
         canvas { image-rendering: pixelated; background:#87CEEB; border:2px solid #222; cursor:none; }
         .hidden { display: none !important; }
-        #mainMenu, #winScreen { text-align: center; }
-        h1 { font-size: 4rem; margin-bottom: 2rem; }
-        .menu-button {
-            font-size: 1.5rem;
-            padding: 1rem 2rem;
-            background: #333;
-            color: white;
-            border: 2px solid #555;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
+        #mainMenu, #winScreen, #gameOverScreen { text-align: center; }
+        h1 { font-size: 4rem; margin-bottom: 1rem; }
+        h2 { font-size: 2rem; margin-top: 3rem; margin-bottom: 1rem; }
+        .menu-button { font-size: 1.5rem; padding: 1rem 2rem; background: #333; color: white; border: 2px solid #555; cursor: pointer; transition: background 0.2s; margin: 0.5rem; }
         .menu-button:hover { background: #444; }
+        #leaderboard { list-style: none; padding: 0; font-size: 1.2rem; }
+        #leaderboard li { padding: 0.2rem; }
         #restartButton { position:absolute; top:20px; left:20px; z-index:20; padding:8px 12px; }
-        #weaponUI { position:absolute; top:60px; left:20px; z-index:20; padding:8px 12px; color:white; background:rgba(0,0,0,0.4); border-radius:6px; }
+        .game-ui { position:absolute; z-index:20; padding:8px 12px; color:white; background:rgba(0,0,0,0.4); border-radius:6px; }
+        #weaponUI { top:60px; left:20px; }
+        #timerUI { top:20px; right:20px; font-size: 1.5rem; }
+        #difficultyContainer, #teamSelection { margin-top:2rem; }
     </style>
 </head>
 <body>
     <div id="mainMenu">
         <h1>Mech Game</h1>
         <button id="quickGameButton" class="menu-button">Quick Game</button>
+        <div id="teamSelection" class="hidden">
+            <button id="copsButton" class="menu-button">Play as Cops</button>
+            <button id="criminalsButton" class="menu-button">Play as Criminals</button>
+        </div>
+        <div id="difficultyContainer">
+            <label for="difficultySlider">AI Difficulty: <span id="difficultyValue">3</span></label><br>
+            <input type="range" id="difficultySlider" min="1" max="5" value="3" style="width: 200px; margin-top:0.5rem;">
+        </div>
+        <div id="leaderboardContainer">
+            <h2>High Scores</h2>
+            <ol id="leaderboard"></ol>
+        </div>
     </div>
 
     <div id="winScreen" class="hidden">
-        <h1>You Win!</h1>
-        <button id="mainMenuButton" class="menu-button">Main Menu</button>
+        <h1 id="winMessage">You Win!</h1>
+        <p id="finalTime"></p>
+        <button id="winMainMenuButton" class="menu-button">Main Menu</button>
+    </div>
+
+    <div id="gameOverScreen" class="hidden">
+        <h1 id="gameOverMessage">Game Over</h1>
+        <p id="gameOverReason">The hostage was killed.</p>
+        <button id="gameOverMainMenuButton" class="menu-button">Main Menu</button>
     </div>
 
     <button id="restartButton" class="hidden">Restart</button>
-    <div id="weaponUI" class="hidden">Weapon: Pistol</div>
+    <div id="weaponUI" class="game-ui hidden">Weapon: Pistol</div>
+    <div id="timerUI" class="game-ui hidden">0.00</div>
     <canvas id="gameCanvas" class="hidden"></canvas>
 
 <script>
 /*
   mechgame.html - Complete version with all features:
-  - NEW: Win condition implemented. Kill the enemy and interact with the hostage ('v') to win.
-  - NEW: A "You Win!" screen is displayed upon winning, with a button to return to the main menu.
-  - Ammo limits and ammo box pickups.
-  - Main menu with a "Quick Game" button.
-  - CRITICAL FIX: Vehicle entry crash has been permanently fixed.
-  - Smoke grenades block enemy line of sight.
-  - Enemy AI defends the hostage.
+  - BUGFIX: Fixed a game freeze caused by an infinite loop when entering the driver's seat.
+  - BUGFIX: Camera now correctly targets the vehicle when the player is in any seat.
+  - UPDATE: Vehicle spawn position adjusted to avoid structures.
+  - UPDATE: Vehicle is now larger and has clear visual areas for driver and gunner roles.
+  - NEW: Player can choose to play as "Cops" or "Criminals" from the main menu.
 */
 
 class InputHandler {
@@ -63,11 +79,50 @@ class InputHandler {
 }
 
 class Weapon {
-    constructor(name,type,damage,cooldown,pellets=1,spread=0,projectileType='bullet', ammo=Infinity, maxAmmo=Infinity){
+    constructor(name,type,damage,cooldown,pellets=1,spread=0,projectileType='bullet', ammo=Infinity, maxAmmo=Infinity, weight=0){
         this.name=name; this.type=type; this.damage=damage; this.cooldown=cooldown;
         this.pellets=pellets; this.spread=spread; this.projectileType=projectileType;
-        this.ammo = ammo; this.maxAmmo = maxAmmo;
+        this.ammo = ammo; this.maxAmmo = maxAmmo; this.weight = weight;
     }
+}
+
+class StunParticle {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.vx = (Math.random() - 0.5) * 4; this.vy = (Math.random() - 0.5) * 4;
+        this.radius = Math.random() * 3 + 1;
+        this.life = 60; this.maxLife = 60; this.active = true;
+    }
+    update() { this.life--; if (this.life <= 0) { this.active = false; return; } this.x += this.vx; this.y += this.vy; }
+    draw(ctx) { ctx.fillStyle = `rgba(255, 255, 100, ${this.life / this.maxLife})`; ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fill(); }
+}
+
+class StunCloud {
+    constructor(x, y, radius, duration, stunDuration) {
+        this.x = x; this.y = y; this.radius = radius;
+        this.life = duration; this.stunDuration = stunDuration;
+        this.particles = []; this.active = true;
+    }
+    update(entities) {
+        this.life--;
+        if (this.life <= 0 && this.particles.length === 0) { this.active = false; return; }
+        if (this.life > 0 && Math.random() < 0.9) {
+            const angle = Math.random() * Math.PI * 2;
+            const spawnX = this.x + Math.cos(angle) * Math.random() * this.radius;
+            const spawnY = this.y + Math.sin(angle) * Math.random() * this.radius;
+            this.particles.push(new StunParticle(spawnX, spawnY));
+        }
+        for (let i = this.particles.length - 1; i >= 0; i--) { this.particles[i].update(); if (!this.particles[i].active) this.particles.splice(i, 1); }
+        
+        if (this.life > 0) {
+             entities.forEach(e => {
+                if (e.health > 0 && Math.hypot(e.x + e.width/2 - this.x, e.y + e.height/2 - this.y) < this.radius) {
+                    e.stunTimer = this.stunDuration;
+                }
+            });
+        }
+    }
+    draw(ctx) { this.particles.forEach(p => p.draw(ctx)); }
 }
 
 class SmokeParticle {
@@ -76,14 +131,8 @@ class SmokeParticle {
         this.vx = (Math.random() - 0.5) * 0.5; this.vy = (Math.random() - 0.5) * 0.5 - 0.2;
         this.radius = Math.random() * 10 + 15; this.life = 180; this.maxLife = 180; this.active = true;
     }
-    update(){
-        this.life--; if(this.life <= 0) { this.active = false; return; }
-        this.x += this.vx; this.y += this.vy;
-    }
-    draw(ctx){
-        ctx.fillStyle = `rgba(180,180,180, ${ (this.life/this.maxLife) * 0.5 })`;
-        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fill();
-    }
+    update(){ this.life--; if(this.life <= 0) { this.active = false; return; } this.x += this.vx; this.y += this.vy; }
+    draw(ctx){ ctx.fillStyle = `rgba(180,180,180, ${ (this.life/this.maxLife) * 0.5 })`; ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fill(); }
 }
 
 class SmokeCloud {
@@ -91,36 +140,29 @@ class SmokeCloud {
         this.x = x; this.y = y; this.radius = radius; this.life = duration;
         this.particles = []; this.active = true;
     }
-    update(){
-        this.life--;
-        if(this.life <= 0 && this.particles.length === 0){ this.active = false; return; }
+    update(entities){
+        this.life--; if(this.life <= 0 && this.particles.length === 0){ this.active = false; return; }
         if (this.life > 0 && Math.random() < 0.7) {
-             const spawnX = this.x + (Math.random() - 0.5) * this.radius * 1.5;
-             const spawnY = this.y + (Math.random() - 0.5) * this.radius * 1.5;
+             const spawnX = this.x + (Math.random() - 0.5) * this.radius * 1.5; const spawnY = this.y + (Math.random() - 0.5) * this.radius * 1.5;
              this.particles.push(new SmokeParticle(spawnX, spawnY));
         }
-        for(let i = this.particles.length - 1; i >= 0; i--){
-            this.particles[i].update();
-            if(!this.particles[i].active) this.particles.splice(i, 1);
-        }
+        for(let i = this.particles.length - 1; i >= 0; i--){ this.particles[i].update(); if(!this.particles[i].active) this.particles.splice(i, 1); }
     }
     draw(ctx){ this.particles.forEach(p => p.draw(ctx)); }
 }
 
 class Explosion {
-    constructor(x,y,radius,damage,world,entities){
-        this.x = x; this.y = y; this.radius = radius;
-        this.damage = damage; this.active = true; this.life = 15;
-        this.applyDamage(world,entities);
+    constructor(x,y,radius,damage,world,entities, newExplosions){
+        this.x = x; this.y = y; this.radius = radius; this.damage = damage; this.active = true; this.life = 15;
+        this.applyDamage(world,entities, newExplosions);
     }
-    applyDamage(world,entities){
+    applyDamage(world,entities, newExplosions){
         const startTx = Math.floor((this.x - this.radius) / world.TILE_SIZE), endTx = Math.floor((this.x + this.radius) / world.TILE_SIZE);
         const startTy = Math.floor((this.y - this.radius) / world.TILE_SIZE), endTy = Math.floor((this.y + this.radius) / world.TILE_SIZE);
-        for(let ty = startTy; ty <= endTy; ty++){ for(let tx = startTx; tx <= endTx; tx++){ if(Math.hypot(this.x - (tx * world.TILE_SIZE + world.TILE_SIZE/2), this.y - (ty*world.TILE_SIZE+world.TILE_SIZE/2)) < this.radius){ world.damageTile(tx,ty,this.damage); } } }
+        for(let ty = startTy; ty <= endTy; ty++){ for(let tx = startTx; tx <= endTx; tx++){ if(Math.hypot(this.x - (tx * world.TILE_SIZE + world.TILE_SIZE/2), this.y - (ty*world.TILE_SIZE+world.TILE_SIZE/2)) < this.radius){ world.damageTile(tx,ty,this.damage, newExplosions, entities); } } }
         entities.forEach(e => {
             if (!e || e.health <= 0) return;
-            const entCenterX = e.x + e.width/2, entCenterY = e.y + e.height/2;
-            const dist = Math.hypot(this.x - entCenterX, this.y - entCenterY);
+            const entCenterX = e.x + e.width/2, entCenterY = e.y + e.height/2; const dist = Math.hypot(this.x - entCenterX, this.y - entCenterY);
             if(dist < this.radius + (e.width+e.height)/4){
                 const damageFalloff = 1 - (dist/this.radius); e.damage(Math.ceil(this.damage * damageFalloff));
                 const angle = Math.atan2(entCenterY - this.y, entCenterX - this.x);
@@ -128,7 +170,7 @@ class Explosion {
             }
         });
     }
-    update(){ this.life--; if(this.life <= 0) this.active = false; }
+    update(entities){ this.life--; if(this.life <= 0) this.active = false; }
     draw(ctx){ ctx.fillStyle = `rgba(255, ${Math.random()*150+100}, 0, ${this.life/15 * 0.8})`; ctx.beginPath(); ctx.arc(this.x, this.y, this.radius * (1 - this.life/15), 0, Math.PI*2); ctx.fill(); }
 }
 
@@ -137,29 +179,57 @@ class Projectile {
         this.x=x; this.y=y; this.damage=damage; this.active=true;
         this.radius = damage>2 ? 5 : 3;
         const angle = Math.atan2(targetY-y,targetX-x) + angleOffset;
-        this.vx = Math.cos(angle)*25; this.vy = Math.sin(angle)*25;
-        this.firedBy = firedBy;
+        this.vx = Math.cos(angle)*25; this.vy = Math.sin(angle)*25; this.firedBy = firedBy;
+        this.ricochetCount = 0;
     }
-    update(world, entities, pickups){
-        if(!this.active) return; this.x += this.vx; this.y += this.vy;
+    update(world, entities, pickups, newExplosions, throwableProjectiles){
+        if(!this.active) return;
+        const prevX = this.x; const prevY = this.y;
+        this.x += this.vx; this.y += this.vy;
         if(this.x < 0 || this.x >= world.width*world.TILE_SIZE || this.y < 0 || this.y >= world.height*world.TILE_SIZE){ this.active = false; return; }
-        const tx = Math.floor(this.x / world.TILE_SIZE), ty = Math.floor(this.y / world.TILE_SIZE);
-        const tile = world.getTile(tx,ty);
-        if(tile){ world.damageTile(tx,ty,this.damage); this.active = false; return; }
-        for(const pu of pickups){ if(pu.collected || pu.health <= 0) continue; if(this.x >= pu.x && this.x <= pu.x + pu.width && this.y >= pu.y && this.y <= pu.y + pu.height){ pu.health -= this.damage; if(pu.health <= 0) pu.collected = true; this.active = false; return; } }
-        for(const e of entities){
-            if(!e || e.health<=0 || this.firedBy === e || (e.isHostage && this.firedBy.isEnemy)) continue;
-            if(typeof e.getHeadRect === 'function'){
-                const hr = e.getHeadRect();
-                if(hr && this.x >= hr.x && this.x <= hr.x + hr.w && this.y >= hr.y && this.y <= hr.y + hr.h){
-                    if (e.hasHelmet) { e.hasHelmet = false; pickups.push(new Pickup(e.x, e.y - e.headRadius, 'helmet', null, e.TILE_SIZE)); } else { e.health = 0; }
-                    this.active = false; return;
-                }
+        
+        for (const e of entities) {
+            if (e.shield && e.shield.active && e.getCurrentWeapon()?.name === "Shield" && e.shield.isColliding(this.x, this.y)) {
+                e.shield.health -= this.damage; this.active = false; return;
             }
         }
+
+        const tx = Math.floor(this.x / world.TILE_SIZE), ty = Math.floor(this.y / world.TILE_SIZE);
+        const tile = world.getTile(tx, ty);
+        if(tile){
+            if (this.ricochetCount < 3 && tile.ricochetChance && Math.random() < tile.ricochetChance) {
+                this.ricochetCount++; this.firedBy = null; this.damage = Math.max(1, Math.floor(this.damage * 0.7));
+                const pTileX = Math.floor(prevX / world.TILE_SIZE), pTileY = Math.floor(prevY / world.TILE_SIZE);
+                let bounced = false; if (pTileY !== ty) { this.vy *= -1; this.y = prevY; bounced = true; } if (pTileX !== tx) { this.vx *= -1; this.x = prevX; bounced = true; } if (!bounced) { this.vx *= -1; this.vy *= -1; }
+                const speed = Math.hypot(this.vx, this.vy) * 0.8; let angle = Math.atan2(this.vy, this.vx) + (Math.random() - 0.5) * 0.2; this.vx = Math.cos(angle) * speed; this.vy = Math.sin(angle) * speed;
+            } else { world.damageTile(tx,ty,this.damage, newExplosions, entities); this.active = false; return; }
+        }
+        for(const pu of pickups){ if(pu.collected || pu.health <= 0) continue; if(this.x >= pu.x && this.x <= pu.x + pu.width && this.y >= pu.y && this.y <= pu.y + pu.height){ pu.health -= this.damage; if(pu.health <= 0) pu.collected = true; this.active = false; return; } }
+        for(const t of throwableProjectiles){ if(!t.active || t.health <= 0 || !t.ricochetChance) continue; if(this.x >= t.x && this.x <= t.x + t.width && this.y >= t.y && this.y <= t.y + t.height){ if(this.ricochetCount<3&&Math.random()<t.ricochetChance){ this.vx*=-1; } else { t.health -= this.damage; if(t.health <= 0) t.active = false; } this.active = false; return; } }
         for(const e of entities){
-            if(!e || e.health<=0 || this.firedBy === e || (e.isHostage && this.firedBy.isEnemy)) continue;
-            if(this.x > e.x && this.x < e.x + e.width && this.y > e.y && this.y < e.y + e.height){ e.damage(this.damage); this.active = false; return; }
+            if(!e || e.health<=0 || (this.firedBy === e && this.ricochetCount === 0)) continue;
+            
+            if(this.x > e.x && this.x < e.x + e.width && this.y > e.y && this.y < e.y + e.height){
+                if (this.ricochetCount < 3 && e.ricochetChance && Math.random() < e.ricochetChance) {
+                    this.ricochetCount++; this.firedBy = null; e.damage(this.damage); this.damage = Math.max(1, Math.floor(this.damage * 0.7));
+                    const pCenterX = prevX, pCenterY = prevY, eCenterX = e.x + e.width/2, eCenterY = e.y + e.height/2;
+                    const dx = pCenterX - eCenterX, dy = pCenterY - eCenterY, w = e.width/2, h = e.height/2;
+                    const crossWidth = w * dy, crossHeight = h * dx;
+                    let collisionSide = 'none';
+                    if(Math.abs(dx) <= w && Math.abs(dy) <= h){ if (crossWidth > crossHeight) { collisionSide = (crossWidth > -crossHeight) ? 'bottom' : 'left'; } else { collisionSide = (crossWidth > -crossHeight) ? 'right' : 'top'; } }
+                    if (collisionSide === 'left' || collisionSide === 'right') { this.vx *= -1; this.x = prevX; } else if (collisionSide === 'top' || collisionSide === 'bottom') { this.vy *= -1; this.y = prevY; } else { this.vx *= -1; this.vy *= -1; }
+                    return; 
+                } else {
+                    if(typeof e.getHeadRect === 'function'){
+                        const hr = e.getHeadRect();
+                        if(hr && this.x >= hr.x && this.x <= hr.x + hr.w && this.y >= hr.y && this.y <= hr.y + hr.h){
+                            if (e.hasHelmet) { e.hasHelmet = false; const helmetPickup = new Pickup(e.x, e.y - e.headRadius, 'helmet', null, e.TILE_SIZE); helmetPickup.vx = this.vx * 0.1; helmetPickup.vy = -5; pickups.push(helmetPickup); } else { e.health = 0; }
+                            this.active = false; return;
+                        }
+                    }
+                    e.damage(this.damage); this.active = false; return;
+                }
+            }
         }
     }
     draw(ctx){ if(!this.active) return; ctx.fillStyle = this.damage>2 ? 'orange' : 'yellow'; ctx.beginPath(); ctx.arc(this.x,this.y,this.radius,0,Math.PI*2); ctx.fill(); }
@@ -177,30 +247,67 @@ class PhysicsEntity {
     }
     handleCollision(world,direction){
         const left = this.x, right = this.x + this.width, top = this.y, bottom = this.y + this.height;
-        if(direction === 'horizontal'){ for(let ty = Math.floor(top/this.TILE_SIZE); ty <= Math.floor((bottom-1)/this.TILE_SIZE); ty++){ if(this.vx < 0 && world.getTile(Math.floor(left/this.TILE_SIZE),ty) && world.getTile(Math.floor(left/this.TILE_SIZE),ty).type !== 'platform'){ this.x = (Math.floor(left/this.TILE_SIZE)+1)*this.TILE_SIZE; this.vx = 0; break; } if(this.vx > 0 && world.getTile(Math.floor(right/this.TILE_SIZE),ty) && world.getTile(Math.floor(right/this.TILE_SIZE),ty).type !== 'platform'){ this.x = Math.floor(right/this.TILE_SIZE)*this.TILE_SIZE - this.width; this.vx = 0; break; } } }
+        if(direction === 'horizontal'){ for(let ty = Math.floor(top/this.TILE_SIZE); ty <= Math.floor((bottom-1)/this.TILE_SIZE); ty++){ if(this.vx < 0 && world.getTile(Math.floor(left/this.TILE_SIZE),ty) && world.getTile(Math.floor(left/this.TILE_SIZE),ty).type !== 'platform'){ this.x = (Math.floor(left/this.TILE_SIZE)+1)*this.TILE_SIZE; this.vx = 0; return true; } if(this.vx > 0 && world.getTile(Math.floor(right/this.TILE_SIZE),ty) && world.getTile(Math.floor(right/this.TILE_SIZE),ty).type !== 'platform'){ this.x = Math.floor(right/this.TILE_SIZE)*this.TILE_SIZE - this.width; this.vx = 0; return true; } } }
         if(direction === 'vertical'){
             this._landedThisFrame = false; let lastOnPlatform = false;
-            if(this.vy > 0) { for(let tx = Math.floor(left/this.TILE_SIZE); tx <= Math.floor((right-1)/this.TILE_SIZE); tx++){ const tile = world.getTile(tx,Math.floor(bottom/this.TILE_SIZE)); if(tile){ if(tile.type === 'platform' && (this.yLast + this.height) > tile.y * this.TILE_SIZE + 1) continue; this.y = Math.floor(bottom/this.TILE_SIZE)*this.TILE_SIZE - this.height; this.vy = 0; if(!this.isOnGround) this._landedThisFrame = true; this.isOnGround = true; if(tile.type === 'platform') lastOnPlatform = true; break; } } }
-            else if (this.vy < 0) { for(let tx = Math.floor(left/this.TILE_SIZE); tx <= Math.floor((right-1)/this.TILE_SIZE); tx++){ if(world.getTile(tx,Math.floor(top/this.TILE_SIZE)) && world.getTile(tx,Math.floor(top/this.TILE_SIZE)).type !== 'platform'){ this.y = (Math.floor(top/this.TILE_SIZE)+1)*this.TILE_SIZE; this.vy = 0; break; } } }
+            if(this.vy > 0) { for(let tx = Math.floor(left/this.TILE_SIZE); tx <= Math.floor((right-1)/this.TILE_SIZE); tx++){ const tile = world.getTile(tx,Math.floor(bottom/this.TILE_SIZE)); if(tile){ if(tile.type === 'platform' && (this.yLast + this.height) > tile.y * this.TILE_SIZE + 1) continue; this.y = Math.floor(bottom/this.TILE_SIZE)*this.TILE_SIZE - this.height; this.vy = 0; if(!this.isOnGround) this._landedThisFrame = true; this.isOnGround = true; if(tile.type === 'platform') lastOnPlatform = true; return true; } } }
+            else if (this.vy < 0) { for(let tx = Math.floor(left/this.TILE_SIZE); tx <= Math.floor((right-1)/this.TILE_SIZE); tx++){ if(world.getTile(tx,Math.floor(top/this.TILE_SIZE)) && world.getTile(tx,Math.floor(top/this.TILE_SIZE)).type !== 'platform'){ this.y = (Math.floor(top/this.TILE_SIZE)+1)*this.TILE_SIZE; this.vy = 0; return true; } } }
             const midX = Math.floor((left+right)/2/this.TILE_SIZE), belowY = Math.floor((bottom+1)/this.TILE_SIZE);
             const tileBelow = world.getTile(midX, belowY);
             if(!tileBelow || (tileBelow && tileBelow.type === 'platform' && this.vy > 0)) { this.isOnGround = false; }
             if(this.lastOnPlatform !== undefined) this.lastOnPlatform = lastOnPlatform;
         }
+        return false;
+    }
+}
+
+class ThrownToaster extends PhysicsEntity {
+    constructor(x, y, vx, vy, ts) {
+        super(x, y, ts);
+        this.width = ts * 1.5; this.height = ts * 1.2;
+        this.vx = vx; this.vy = vy;
+        this.active = true; this.bounciness = 0.4; this.friction = 0.9;
+        this.damageDealt = false; this.health = 15;
+        this.ricochetChance = 0.8;
+    }
+    update(world, entities) {
+        if (!this.active) return;
+        this.applyPhysics(world);
+        if (this.isOnGround) this.vx *= this.friction;
+        if (this.health <= 0) this.active = false;
+        if (!this.damageDealt) {
+            for (const e of entities) {
+                if (!e.isHostage && e.health > 0 && this.x < e.x + e.width && this.x + this.width > e.x && this.y < e.y + e.height && this.y + this.height > e.y) {
+                    e.damage(5); this.damageDealt = true; this.vx *= -this.bounciness; break;
+                }
+            }
+        }
+    }
+    handleCollision(world, direction) {
+        const collided = super.handleCollision(world, direction);
+        if (collided) {
+            if (direction === 'vertical') { this.vy *= -this.bounciness; if (Math.abs(this.vy) < 1) this.vy = 0; }
+            if (direction === 'horizontal') { this.vx *= -this.bounciness; }
+        }
+        return collided;
+    }
+    draw(ctx) {
+        if (!this.active) return;
+        ctx.globalAlpha = Math.max(0.2, this.health / 15);
+        ctx.fillStyle = '#c0c0c0'; ctx.fillRect(this.x, this.y, this.width, this.height);
+        ctx.fillStyle = '#a0a0a0'; ctx.fillRect(this.x + this.width * 0.2, this.y, this.width * 0.1, this.height * 0.4);
+        ctx.globalAlpha = 1;
     }
 }
 
 class ThrownGrenade extends PhysicsEntity {
-    constructor(x,y,vx,vy,damage,ts,type){
-        super(x,y,ts); this.vx = vx; this.vy = vy; this.damage = damage;
-        this.width = ts*0.5; this.height = ts*0.5; this.fuse = 90;
-        this.type = type; this.bounciness = 0.6; this.explosionRadius = ts * 5; this.active = true;
-    }
-    update(world, entities, pickups, explosions, smokeClouds) {
+    constructor(x, y, vx, vy, damage, ts, type) { super(x, y, ts); this.vx = vx; this.vy = vy; this.damage = damage; this.width = ts * 0.5; this.height = ts * 0.5; this.fuse = 90; this.type = type; this.bounciness = 0.6; this.explosionRadius = ts * 5; this.active = true; }
+    update(world, entities, explosions, smokeClouds, stunClouds) {
         if (!this.active) return; this.fuse--;
         if (this.fuse <= 0) {
-            if(this.type === 'grenade') explosions.push(new Explosion(this.x, this.y, this.explosionRadius, this.damage, world, entities));
+            if (this.type === 'grenade') explosions.push(new Explosion(this.x, this.y, this.explosionRadius, this.damage, world, entities, explosions));
             else if (this.type === 'smoke') smokeClouds.push(new SmokeCloud(this.x, this.y, this.explosionRadius, 400));
+            else if (this.type === 'stun') stunClouds.push(new StunCloud(this.x, this.y, this.explosionRadius * 1.2, 120, 180));
             this.active = false; return;
         }
         this.applyPhysics(world);
@@ -209,27 +316,123 @@ class ThrownGrenade extends PhysicsEntity {
         if(direction === 'horizontal'){ const left = this.x, right = this.x + this.width, top = this.y, bottom = this.y + this.height; if(this.vx < 0 && world.getTile(Math.floor(left/this.TILE_SIZE),Math.floor((top+bottom-1)/2/this.TILE_SIZE))){ this.vx *= -this.bounciness; this.x = (Math.floor(left/this.TILE_SIZE)+1)*this.TILE_SIZE; } if(this.vx > 0 && world.getTile(Math.floor(right/this.TILE_SIZE),Math.floor((top+bottom-1)/2/this.TILE_SIZE))){ this.vx *= -this.bounciness; this.x = Math.floor(right/this.TILE_SIZE)*this.TILE_SIZE - this.width; } }
         if(direction === 'vertical'){ const left = this.x, right = this.x + this.width, top = this.y, bottom = this.y + this.height; if(this.vy > 0 && world.getTile(Math.floor((left+right-1)/2/this.TILE_SIZE), Math.floor(bottom/this.TILE_SIZE))){ this.vy *= -this.bounciness; if(Math.abs(this.vy)<1) this.vy = 0; this.vx *= 0.9; this.y = Math.floor(bottom/this.TILE_SIZE)*this.TILE_SIZE - this.height; } if(this.vy < 0 && world.getTile(Math.floor((left+right-1)/2/this.TILE_SIZE), Math.floor(top/this.TILE_SIZE))){ this.vy *= -this.bounciness; this.y = (Math.floor(top/this.TILE_SIZE)+1)*this.TILE_SIZE; } }
     }
-    draw(ctx) { const color = this.type === 'smoke' ? '#ccc' : 'darkgreen'; ctx.fillStyle = (this.fuse < 30 && this.fuse % 10 < 5) ? 'white' : color; ctx.beginPath(); ctx.arc(this.x + this.width/2, this.y + this.height/2, this.width, 0, Math.PI * 2); ctx.fill(); }
+    draw(ctx) { 
+        const color = this.type === 'smoke' ? '#ccc' : (this.type === 'stun' ? 'yellow' : 'darkgreen');
+        ctx.fillStyle = (this.fuse < 30 && this.fuse % 10 < 5) ? 'white' : color; 
+        ctx.beginPath(); ctx.arc(this.x + this.width/2, this.y + this.height/2, this.width, 0, Math.PI * 2); ctx.fill(); 
+    }
+}
+
+class ExplosiveCharge extends PhysicsEntity {
+    constructor(x, y, vx, vy, damage, ts) {
+        super(x, y, ts);
+        this.vx = vx; this.vy = vy; this.damage = damage;
+        this.width = ts * 0.8; this.height = ts * 0.8;
+        this.active = true; this.planted = false;
+        this.explosionRadius = ts * 7;
+        this.attachedTo = null;
+    }
+    update(world, entities, explosions, owner) {
+        if (!this.active) return;
+        if (this.planted) {
+            if (this.attachedTo && this.attachedTo.health <= 0) { this.detonate(explosions, world, entities, owner); }
+            return;
+        }
+        
+        this.yLast = this.y;
+        this.vy += this.gravity;
+        this.x += this.vx;
+        if (this.handleCollision(world, 'horizontal')) { this.planted = true; this.vx = 0; this.vy = 0; }
+        this.y += this.vy;
+        if (this.handleCollision(world, 'vertical')) { this.planted = true; this.vx = 0; this.vy = 0; }
+
+        if (!this.planted) {
+            for (const e of entities) {
+                if (e.health > 0 && e !== owner && this.x < e.x + e.width && this.x + this.width > e.x && this.y < e.y + e.height && this.y + this.height > e.y) {
+                    this.planted = true; this.vx = 0; this.vy = 0; this.attachedTo = e; break;
+                }
+            }
+        }
+    }
+    detonate(explosions, world, entities, owner) {
+        if (!this.active) return;
+        this.active = false;
+        explosions.push(new Explosion(this.x + this.width / 2, this.y + this.height / 2, this.explosionRadius, this.damage, world, entities, explosions));
+        if (owner) owner.activeCharge = null;
+    }
+    draw(ctx) {
+        if (!this.active) return;
+        ctx.fillStyle = (Date.now() % 400 < 200) ? 'red' : 'darkred';
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        ctx.fillStyle = 'black';
+        ctx.fillRect(this.x + this.width * 0.2, this.y + this.height * 0.2, this.width * 0.6, this.height * 0.6);
+    }
+}
+
+class Shield {
+    constructor(owner) { this.owner = owner; this.width = owner.width * 0.5; this.height = owner.height * 1.2; this.health = 25; this.maxHealth = 25; this.active = true; this.angle = 0; this.offsetX = owner.width; }
+    update(worldMousePos) {
+        if (!this.active) return;
+        if (this.health <= 0) { this.active = false; return; }
+        const ownerCenterX = this.owner.x + this.owner.width / 2; const ownerCenterY = this.owner.y + this.owner.height / 2;
+        this.angle = Math.atan2(worldMousePos.y - ownerCenterY, worldMousePos.x - ownerCenterX);
+    }
+    isColliding(px, py) {
+        const ownerCenterX = this.owner.x + this.owner.width / 2; const ownerCenterY = this.owner.y + this.owner.height / 2;
+        const localX = px - ownerCenterX, localY = py - ownerCenterY;
+        const rotatedX = localX * Math.cos(-this.angle) - localY * Math.sin(-this.angle);
+        const rotatedY = localX * Math.sin(-this.angle) + localY * Math.cos(-this.angle);
+        return rotatedX > this.offsetX && rotatedX < this.offsetX + this.width && rotatedY > -this.height / 2 && rotatedY < this.height / 2;
+    }
+    draw(ctx) {
+        if (!this.active || this.owner.getCurrentWeapon()?.name !== "Shield") return;
+        const ownerCenterX = this.owner.x + this.owner.width / 2; const ownerCenterY = this.owner.y + this.owner.height / 2;
+        ctx.save(); ctx.translate(ownerCenterX, ownerCenterY); ctx.rotate(this.angle);
+        ctx.fillStyle = `rgba(100, 150, 255, ${0.5 + (this.health / this.maxHealth) * 0.5})`;
+        ctx.fillRect(this.offsetX, -this.height / 2, this.width, this.height);
+        ctx.fillStyle = '#222'; ctx.fillRect(this.offsetX, this.height/2 + 4, this.width, 5);
+        ctx.fillStyle = 'cyan'; ctx.fillRect(this.offsetX, this.height/2 + 4, this.width * (this.health/this.maxHealth), 5);
+        ctx.restore();
+    }
 }
 
 class Player extends PhysicsEntity {
-    constructor(x,y,ts,color='red',isEnemy=false, isHostage=false){
+    constructor(x, y, ts, color = 'red', isCop = false, isCriminal = false, isHostage = false, difficulty = 3) {
         super(x,y,ts);
         this.width = ts*2; this.bodyHeight = ts*3; this.headRadius = this.width * 0.4;
         this.originalHeight = this.bodyHeight; this.duckHeight = this.bodyHeight * 0.5; this.height = this.originalHeight; 
-        this.color = color; this.isEnemy=isEnemy; this.isHostage=isHostage; this.isRescued = false; this.isInVehicle=false;
+        this.color = color; 
+        this.isCop = isCop; this.isCriminal = isCriminal; this.isHostage = isHostage;
+        this.isRescued = false; this.vehicleRole=null;
         this.isDucking = false; this.hasHelmet = !isHostage; this.acceleration = 0.4; this.friction=0.88; this.maxSpeed = 4; this.jumpStrength = 12;
         this.sprintMultiplier = 2; this.sprintTimer = 0; this.lastMoveDirection = 0;
         this.isWallSliding=false; this.wallSlideSpeed = 2; this.wallJumpLockTimer=0; this.wallJumpLockDuration=10; this.wallSlideDirection=0;
         this.recentWallJumpTimer = 0; this.justLanded = false;
-        this.weapons = isHostage ? [] : [ new Weapon("Pistol","ranged",1,15,1,0,'bullet',Infinity,Infinity) ];
+        this.weapons = isHostage ? [] : [ new Weapon("Pistol","ranged",1,15,1,0,'bullet',Infinity,Infinity, 2) ];
         this.currentWeaponIndex = 0; this.maxHealth = 10; this.health = this.maxHealth;
         this.shootTimer = 0; this.patrolDir = 1; this.patrolTimer = 120;
+        this.shield = null; this.activeCharge = null; this.stunTimer = 0; this.totalWeight = 0;
+        this.aimAngle = 0; this.isPlayer = false;
+        
+        if (isCop || isCriminal) {
+            this.difficulty = difficulty;
+            this.aggression = 200 + difficulty * 60; 
+            this.aim = 0.4 - difficulty * 0.075; 
+            this.fireRateMultiplier = 1 + (difficulty - 1) * 0.25;
+        }
     }
+    get isInVehicle() { return this.vehicleRole !== null; }
     getCurrentWeapon(){ return this.weapons[this.currentWeaponIndex]; }
     cycleWeapon(dir){ this.currentWeaponIndex = (this.currentWeaponIndex + dir + this.weapons.length) % this.weapons.length; }
+    calculateWeight() {
+        this.totalWeight = 0;
+        if(this.hasHelmet) this.totalWeight += 1;
+        this.weapons.forEach(w => {
+            if (w.maxAmmo > 1 && w.ammo !== Infinity) { this.totalWeight += (w.weight * w.ammo); } else { this.totalWeight += w.weight; }
+        });
+    }
     getHeadRect(){ if(this.isHostage) return null; const headX = this.x + this.width / 2 - this.headRadius; const bodyDrawY = this.y; const headY = bodyDrawY - this.headRadius * 1.8 + (this.originalHeight - this.height); return { x: headX, y: headY, w: this.headRadius * 2, h: this.headRadius * 2 }; }
-    checkForWallSlide(world){ if(this.isEnemy || this.isHostage || this.isOnGround || this.vy < 0){ this.isWallSliding=false; return; } this.isWallSliding=false; this.wallSlideDirection=0; const leftTileX = Math.floor((this.x - 1) / this.TILE_SIZE), rightTileX = Math.floor((this.x + this.width) / this.TILE_SIZE), topTileY = Math.floor(this.y / this.TILE_SIZE), bottomTileY = Math.floor((this.y + this.height - 1) / this.TILE_SIZE); for(let ty = topTileY; ty <= bottomTileY; ty++){ if(world.getTile(leftTileX, ty) && world.getTile(leftTileX, ty).type !== 'platform' && this.x <= (leftTileX+1)*this.TILE_SIZE + 2){ this.isWallSliding = true; this.wallSlideDirection = -1; break; } if(world.getTile(rightTileX, ty) && world.getTile(rightTileX, ty).type !== 'platform' && (this.x + this.width) >= rightTileX*this.TILE_SIZE - 2){ this.isWallSliding = true; this.wallSlideDirection = 1; break; } } }
+    checkForWallSlide(world){ if((this.isCop || this.isCriminal) && !this.isPlayer || this.isHostage || this.isOnGround || this.vy < 0){ this.isWallSliding=false; return; } this.isWallSliding=false; this.wallSlideDirection=0; const leftTileX = Math.floor((this.x - 1) / this.TILE_SIZE), rightTileX = Math.floor((this.x + this.width) / this.TILE_SIZE), topTileY = Math.floor(this.y / this.TILE_SIZE), bottomTileY = Math.floor((this.y + this.height - 1) / this.TILE_SIZE); for(let ty = topTileY; ty <= bottomTileY; ty++){ if(world.getTile(leftTileX, ty) && world.getTile(leftTileX, ty).type !== 'platform' && this.x <= (leftTileX+1)*this.TILE_SIZE + 2){ this.isWallSliding = true; this.wallSlideDirection = -1; break; } if(world.getTile(rightTileX, ty) && world.getTile(rightTileX, ty).type !== 'platform' && (this.x + this.width) >= rightTileX*this.TILE_SIZE - 2){ this.isWallSliding = true; this.wallSlideDirection = 1; break; } } }
     handleDucking(input, world){
         const wantsToDuck = input.isKeyPressed('s') || input.isKeyPressed('arrowdown');
         if (wantsToDuck && this.isOnGround && this.lastOnPlatform) { this.y += 2; this.isOnGround = false; return; }
@@ -243,104 +446,190 @@ class Player extends PhysicsEntity {
         if (this.height !== heightBefore) { this.y += heightBefore - this.height; }
     }
     handlePlayerInput(input){
+        let moveDir = 0; if (input.isKeyPressed('a') || input.isKeyPressed('arrowleft')) moveDir = -1; else if (input.isKeyPressed('d') || input.isKeyPressed('arrowright')) moveDir = 1;
+        this.calculateWeight();
+        const weightPenalty = Math.max(0.4, 1 - this.totalWeight * 0.02);
+        let stunMultiplier = this.stunTimer > 0 ? 0.2 : 1;
         if(this.wallJumpLockTimer > 0){ this.wallJumpLockTimer--; } else {
-            let moveDir = 0;
-            if(input.isKeyPressed('a') || input.isKeyPressed('arrowleft')) moveDir = -1; else if(input.isKeyPressed('d') || input.isKeyPressed('arrowright')) moveDir = 1;
-            let currentMaxSpeed = this.sprintTimer > 120 ? this.maxSpeed*this.sprintMultiplier : this.maxSpeed;
+            let currentMaxSpeed = (this.sprintTimer > 120 ? this.maxSpeed*this.sprintMultiplier : this.maxSpeed) * weightPenalty;
             if(this.isDucking) { currentMaxSpeed *= 0.5; }
-            if(moveDir !== 0){
-                if(this.recentWallJumpTimer > 0){ this.vx = moveDir * currentMaxSpeed; this.sprintTimer = Math.max(this.sprintTimer, 120); }
-                else { this.vx += moveDir*this.acceleration; if(Math.abs(this.vx) > currentMaxSpeed) this.vx = moveDir*currentMaxSpeed; }
-                if(moveDir === this.lastMoveDirection && !this.isDucking) this.sprintTimer++; else this.sprintTimer=0;
+            currentMaxSpeed *= stunMultiplier;
+            if(moveDir !== 0){ if(this.recentWallJumpTimer > 0){ this.vx = moveDir * currentMaxSpeed; this.sprintTimer = Math.max(this.sprintTimer, 120); } else { this.vx += moveDir*this.acceleration*stunMultiplier*weightPenalty; if(Math.abs(this.vx) > currentMaxSpeed) this.vx = moveDir*currentMaxSpeed; } if(moveDir === this.lastMoveDirection && !this.isDucking) this.sprintTimer++; else this.sprintTimer=0;
             } else { if(!this.justLanded) { this.vx *= this.friction; if(Math.abs(this.vx) < 0.08) this.vx = 0; } this.sprintTimer = 0; } this.lastMoveDirection = moveDir;
         }
-        if(input.wasKeyJustPressed('w') || input.wasKeyJustPressed('arrowup') || input.wasKeyJustPressed(' ')){
-            if(this.isOnGround && !this.isDucking){ this.vy = -this.jumpStrength; this.isOnGround=false; }
-            else if(this.isWallSliding){ this.vy = -this.jumpStrength*0.9; this.vx = -this.wallSlideDirection * this.maxSpeed * 1.5; this.wallJumpLockTimer = this.wallJumpLockDuration; this.isWallSliding = false; this.recentWallJumpTimer = 20; }
+        if((input.wasKeyJustPressed('w') || input.wasKeyJustPressed('arrowup') || input.wasKeyJustPressed(' ')) && this.stunTimer <=0){
+            if(this.isOnGround && !this.isDucking){ this.vy = -this.jumpStrength * weightPenalty; this.isOnGround=false; }
+            else if(this.isWallSliding){ this.vy = -this.jumpStrength*0.9 * weightPenalty; this.vx = -this.wallSlideDirection * this.maxSpeed * 1.5; this.wallJumpLockTimer = this.wallJumpLockDuration; this.isWallSliding = false; this.recentWallJumpTimer = 20; }
         }
     }
-    handleAI(player, hostage, world, projectiles, smokeClouds){
-        if(!player || player.health<=0){ this.vx=0; return; }
-        const defenseRadius = 300; const distToPlayer = Math.hypot(this.x - player.x, this.y - player.y);
-        const startX = this.x + this.width/2, startY = this.y, endX = player.x + player.width/2, endY = player.y;
-        let hasLOS = true; const steps = 50;
-        for(let i=1; i<=steps; i++) {
-            const checkX = startX + (endX - startX) * i/steps, checkY = startY + (endY - startY) * i/steps;
-            if(world.getTile(Math.floor(checkX/world.TILE_SIZE), Math.floor(checkY/world.TILE_SIZE))) { hasLOS = false; break; }
-            for(const smoke of smokeClouds) { if (Math.hypot(checkX - smoke.x, checkY - smoke.y) < smoke.radius) { hasLOS = false; break; } }
-            if(!hasLOS) break;
+    handleAI(targets, world, projectiles, smokeClouds){
+        if(this.stunTimer > 0) { this.vx *= 0.2; return; }
+        let closestTarget = null, minD = Infinity;
+        targets.forEach(t => { if(t && t.health > 0){ const d = Math.hypot(this.x - t.x, this.y - t.y); if(d < minD) { minD = d; closestTarget = t; } }});
+        
+        if (closestTarget) {
+            const startX = this.x + this.width/2, startY = this.y + this.height/2;
+            const endX = closestTarget.x + closestTarget.width/2, endY = closestTarget.y + closestTarget.height/2;
+            let hasLOS = true; const steps = Math.floor(minD/this.TILE_SIZE);
+            for(let i=1; i<=steps; i++) {
+                const checkX = startX + (endX - startX) * i/steps, checkY = startY + (endY - startY) * i/steps;
+                if(world.getTile(Math.floor(checkX/world.TILE_SIZE), Math.floor(checkY/world.TILE_SIZE))) { hasLOS = false; break; }
+                for(const smoke of smokeClouds) { if (Math.hypot(checkX - smoke.x, checkY - smoke.y) < smoke.radius) { hasLOS = false; break; } }
+                if(!hasLOS) break;
+            }
+            if(minD < this.aggression && hasLOS && this.shootTimer <= 0) {
+                 this.vx = 0; 
+                 const aimOffset = (Math.random() - 0.5) * this.aim;
+                 const weapon = this.getCurrentWeapon();
+                 for(let i=0; i < weapon.pellets; i++){ projectiles.push(new Projectile(startX, startY, endX, endY, this, weapon.damage, aimOffset + (Math.random() - 0.5) * weapon.spread)); }
+                 this.shootTimer = weapon.cooldown / this.fireRateMultiplier;
+                 return;
+            }
         }
-        if(distToPlayer < defenseRadius && hasLOS && this.shootTimer <= 0) {
-            this.vx = 0; projectiles.push(new Projectile(this.x + this.width/2, this.y, player.x + player.width/2, player.y + player.height/2, this, this.getCurrentWeapon().damage)); this.shootTimer = this.getCurrentWeapon().cooldown;
-        } else {
-            this.patrolTimer--; if(this.patrolTimer <= 0) { this.patrolDir *= -1; this.patrolTimer = Math.random()*120+120; }
-            const distToHostage = Math.hypot(this.x - hostage.x, this.y - hostage.y);
-            if (distToHostage > 80) { this.vx = Math.sign(hostage.x - this.x) * 1.5; } else { this.vx = this.patrolDir * 1; }
-        }
+        this.patrolTimer--; if(this.patrolTimer <= 0) { this.patrolDir *= -1; this.patrolTimer = Math.random()*120+120; }
+        this.vx = this.patrolDir * 1;
     }
-    update(input, world, context, projectiles, smokeClouds, pickups){
+    update(input, world, context, projectiles, smokeClouds, pickups, worldMousePos, throwableProjectiles){
         if(this.health<=0){ this.vx = 0; this.applyPhysics(world); return; }
         if(this.isInVehicle) return;
         if(this.shootTimer > 0) this.shootTimer--;
-        if(this.isEnemy){ this.handleAI(context.player, context.hostage, world, projectiles, smokeClouds); }
+        if(this.stunTimer > 0) this.stunTimer--;
+        
+        const currentWeaponName = this.getCurrentWeapon()?.name;
+        if (currentWeaponName === 'Shield' && !this.shield) { this.shield = new Shield(this); } 
+        else if (currentWeaponName !== 'Shield' && this.shield) { this.shield = null; }
+        
+        if (this.isPlayer) {
+            this.handleDucking(input, world); this.handlePlayerInput(input);
+            const playerCenterX = this.x + this.width / 2, playerCenterY = this.y + this.height / 2;
+            this.aimAngle = Math.atan2(worldMousePos.y - playerCenterY, worldMousePos.x - playerCenterX);
+        } else if (this.isCop) { this.handleAI(context.criminals, world, projectiles, smokeClouds); }
+        else if (this.isCriminal) { this.handleAI(context.cops, world, projectiles, smokeClouds); }
         else if (this.isHostage) { this.vx = 0; }
-        else { 
-            this.handleDucking(input, world); this.handlePlayerInput(input); 
-            for (let i = pickups.length - 1; i >= 0; i--) {
-                const pu = pickups[i];
-                if (pu.pickupType === 'ammo' && !pu.collected) {
-                    if (this.x < pu.x + pu.width && this.x + this.width > pu.x && this.y < pu.y + pu.height && this.y + this.height > pu.y) {
-                        this.weapons.forEach(w => { if (w.ammo !== Infinity) w.ammo = Math.min(w.maxAmmo, w.ammo + pu.ammoAmount); });
-                        pu.collected = true;
-                    }
-                }
-            }
-        }
+        
         this.applyPhysics(world);
-        if(!this.isEnemy && !this.isHostage) { if(this._landedThisFrame && this.recentWallJumpTimer > 0) this.justLanded = true; else this.justLanded = false; this.checkForWallSlide(world); if(this.isWallSliding && this.vy > this.wallSlideSpeed) this.vy = this.wallSlideSpeed; if(this.recentWallJumpTimer > 0) this.recentWallJumpTimer--; }
+        if(this.isPlayer) { 
+            if(this.shield) this.shield.update(worldMousePos);
+            if(this._landedThisFrame && this.recentWallJumpTimer > 0) this.justLanded = true; else this.justLanded = false; this.checkForWallSlide(world); if(this.isWallSliding && this.vy > this.wallSlideSpeed) this.vy = this.wallSlideSpeed; if(this.recentWallJumpTimer > 0) this.recentWallJumpTimer--; 
+        }
+    }
+    drawWeapon(ctx) {
+        const weapon = this.getCurrentWeapon();
+        if (!weapon) return;
+        const centerX = this.x + this.width / 2, centerY = this.y + this.height / 2;
+        ctx.save(); ctx.translate(centerX, centerY); ctx.rotate(this.aimAngle);
+        const weaponLength = this.TILE_SIZE * 2, weaponHeight = this.TILE_SIZE * 0.5;
+        ctx.fillStyle = '#444';
+        if (weapon.name === "Toaster") { ctx.fillStyle = '#c0c0c0'; ctx.fillRect(this.TILE_SIZE*0.5, -weaponHeight, weaponLength * 0.6, weaponHeight*2); } 
+        else { ctx.fillRect(0, -weaponHeight / 2, weaponLength, weaponHeight); }
+        ctx.restore();
     }
     draw(ctx){
-        if(this.isInVehicle) return;
+        if(this.isInVehicle || this.isRescued) return;
         ctx.fillStyle = this.isWallSliding ? '#ffc107' : (this.health>0 ? this.color : '#555');
+        if (this.stunTimer > 0 && this.stunTimer % 10 < 5) ctx.fillStyle = 'yellow';
         ctx.fillRect(this.x, this.y, this.width, this.height);
-        if(!this.isHostage){
-            const hr = this.getHeadRect();
+        if (this.shield) this.shield.draw(ctx);
+        if (this.health > 0 && !this.isInVehicle && this.isPlayer) { const weapon = this.getCurrentWeapon(); if (weapon && weapon.name !== 'Shield') { this.drawWeapon(ctx); } }
+        const hr = this.getHeadRect();
+        const healthBarY = hr ? hr.y - 10 : this.y - 10;
+        if (this.stunTimer > 0) { ctx.fillStyle = "yellow"; ctx.font = "12px sans-serif"; ctx.textAlign = "center"; ctx.fillText("STUNNED", this.x + this.width/2, healthBarY - 2); }
+        if(!this.isHostage && hr){
             ctx.save(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(hr.x + hr.w/2, hr.y + hr.h/2, hr.w/2, 0, Math.PI*2); ctx.fill();
             ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke();
             if(this.hasHelmet) { ctx.fillStyle = 'rgba(128,128,128,0.5)'; ctx.beginPath(); ctx.arc(hr.x + hr.w/2, hr.y + hr.h/2, hr.w/2 + 2, 0, Math.PI*2); ctx.fill(); }
             ctx.restore();
-            const healthBarY = hr.y - 10;
             if(this.health>0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, healthBarY, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, healthBarY, bw*(this.health/this.maxHealth), bh); }
-        } else { if(this.health>0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, this.y-10, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, this.y-10, bw*(this.health/this.maxHealth), bh); } }
+        } else { if(this.health>0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, healthBarY, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, healthBarY, bw*(this.health/this.maxHealth), bh); } }
     }
 }
 class Vehicle extends PhysicsEntity {
-    constructor(x,y,ts){ super(x,y,ts); this.width = ts*6; this.height = ts*5; this.color = '#6c757d'; this.maxSpeed = 2.5; this.jumpStrength = 13; this.maxHealth = 50; this.health = this.maxHealth; this.occupant = null; this.weapon = new Weapon("Cannon","ranged",3,8); this.acceleration = 0.2; this.friction = 0.95; }
-    handleInput(input){ let dir=0; if(input.isKeyPressed('a')||input.isKeyPressed('arrowleft')) dir=-1; else if(input.isKeyPressed('d')||input.isKeyPressed('arrowright')) dir=1; if(dir!==0){ this.vx += dir*this.acceleration; if(Math.abs(this.vx)>this.maxSpeed) this.vx = dir*this.maxSpeed; } else this.vx *= this.friction; if((input.isKeyPressed('w')||input.isKeyPressed('arrowup')||input.isKeyPressed(' ')) && this.isOnGround){ this.vy = -this.jumpStrength; this.isOnGround=false; } }
-    update(input,world){ if(this.health<=0){ if(this.occupant) this.eject(); this.vx=0; } else if(this.occupant) this.handleInput(input); else this.vx *= this.friction; this.applyPhysics(world); }
-    eject(){ if(!this.occupant) return; const p = this.occupant; p.isInVehicle=false; p.x = this.x + this.width/2 - p.width/2; p.y = this.y - p.height; p.vy = -5; this.occupant=null; }
-    draw(ctx){ ctx.fillStyle = this.health>0 ? this.color : '#333'; ctx.fillRect(this.x,this.y,this.width,this.height); const healthBarY = this.y - 10; if(this.health>0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, healthBarY, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, healthBarY, bw*(this.health/this.maxHealth), bh); } }
+    constructor(x,y,ts){ 
+        super(x,y,ts); 
+        this.width = ts*8; this.height = ts*6; this.color = '#6c757d'; 
+        this.maxSpeed = 2.5; this.jumpStrength = 13; this.maxHealth = 50; this.health = this.maxHealth; 
+        this.driver = null; this.gunner = null;
+        this.weapon = new Weapon("Cannon","ranged",8,90); this.acceleration = 0.2; this.friction = 0.95; 
+        this.weaponAngle = 0; this.shootTimer = 0;
+    }
+    handleInput(input){ 
+        let dir=0; if(input.isKeyPressed('a')||input.isKeyPressed('arrowleft')) dir=-1; else if(input.isKeyPressed('d')||input.isKeyPressed('arrowright')) dir=1; 
+        if(dir!==0){ this.vx += dir*this.acceleration; if(Math.abs(this.vx)>this.maxSpeed) this.vx = dir*this.maxSpeed; } else this.vx *= this.friction; 
+        if((input.isKeyPressed('w')||input.isKeyPressed('arrowup')||input.isKeyPressed(' ')) && this.isOnGround){ this.vy = -this.jumpStrength; this.isOnGround=false; } 
+    }
+    update(input,world, context, projectiles, smokeClouds, pickups, worldMousePos){ 
+        if(this.shootTimer > 0) this.shootTimer--;
+        if(this.health<=0){ if(this.driver) this.eject('driver'); if(this.gunner) this.eject('gunner'); this.vx=0; } 
+        else if(this.driver) { this.handleInput(input); }
+        else if(this.gunner) { this.vx *= this.friction; this.weaponAngle = Math.atan2(worldMousePos.y - (this.y + this.height/2), worldMousePos.x - (this.x + this.width/2)); }
+        else { this.vx *= this.friction; }
+        this.applyPhysics(world); 
+    }
+    eject(role){ 
+        const p = this[role];
+        if(!p) return; 
+        p.vehicleRole=null; p.x = this.x + this.width/2 - p.width/2; p.y = this.y - p.height; p.vy = -5; 
+        this[role]=null; 
+    }
+    draw(ctx){ 
+        if(this.health <= 0) return; 
+        // Main body
+        ctx.fillStyle = this.health > 0 ? this.color : '#333';
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        
+        // Driver section (front half)
+        ctx.fillStyle = '#8d99ae';
+        ctx.fillRect(this.x, this.y, this.width / 2, this.height);
+        
+        // Gunner hatch (back half)
+        ctx.fillStyle = '#495057';
+        ctx.beginPath();
+        ctx.arc(this.x + this.width * 0.75, this.y + this.height / 2, this.width * 0.15, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Role indicators
+        ctx.fillStyle = 'white'; ctx.font = 'bold 24px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        if (!this.driver) { ctx.fillText('D', this.x + this.width * 0.25, this.y + this.height / 2); }
+        if (!this.gunner) { ctx.fillText('G', this.x + this.width * 0.75, this.y + this.height / 2); }
+
+        // Health bar
+        const healthBarY = this.y - 10; 
+        if(this.health > 0 && this.health < this.maxHealth){ const bw = this.width, bh=5; ctx.fillStyle = '#222'; ctx.fillRect(this.x, healthBarY, bw, bh); ctx.fillStyle = 'green'; ctx.fillRect(this.x, healthBarY, bw*(this.health/this.maxHealth), bh); }
+        
+        // Cannon
+        const cannonX = this.x + this.width * 0.75, cannonY = this.y + this.height / 2;
+        const cannonLength = this.TILE_SIZE * 3, cannonHeight = this.TILE_SIZE * 0.6;
+        ctx.save();
+        ctx.translate(cannonX, cannonY);
+        ctx.rotate(this.weaponAngle);
+        ctx.fillStyle = '#333';
+        ctx.fillRect(0, -cannonHeight / 2, cannonLength, cannonHeight);
+        ctx.restore();
+    }
 }
-class Pickup {
+class Pickup extends PhysicsEntity {
     constructor(x,y,pickupType,data,ts){
-        this.x = x; this.y = y; this.width = ts; this.height = ts; this.vx = 0; this.vy = 0; this.gravity = 0.6; this.collected = false;
+        super(x,y,ts);
+        this.width = ts; this.height = ts; this.vx = 0; this.vy = 0; this.gravity = 0.6; this.collected = false;
         this.pickupType = pickupType; this.weaponData = null; this.ammoAmount = 0;
         if(pickupType === 'weapon') this.weaponData = data;
         if(pickupType === 'ammo') this.ammoAmount = data;
         this.health = 10;
+        this.friction = 0.8;
     }
     update(world){
-        if(this.collected) return;
+        if(this.collected) return; 
         if(this.pickupType === 'ammo') return;
-        this.vy += this.gravity; this.x += this.vx; this.y += this.vy;
-        const tile = world.getTile(Math.floor((this.x+this.width/2)/world.TILE_SIZE), Math.floor((this.y+this.height)/world.TILE_SIZE));
-        if(tile){ this.y = Math.floor((this.y+this.height)/world.TILE_SIZE)*world.TILE_SIZE - this.height; this.vy=0; this.vx*=0.6; }
+        this.applyPhysics(world);
+        if (this.isOnGround) this.vx *= this.friction;
         if(this.y > world.height * world.TILE_SIZE + 500 || this.health <= 0) this.collected = true;
     }
     draw(ctx){
-        if(this.collected) return;
-        ctx.save();
-        if(this.pickupType === 'weapon' && this.weaponData.projectileType === 'grenade') { ctx.fillStyle = 'darkgreen'; ctx.beginPath(); ctx.arc(this.x + this.width/2, this.y + this.height/2, this.width/1.5, 0, Math.PI*2); ctx.fill(); }
+        if(this.collected) return; ctx.save();
+        if(this.pickupType === 'weapon' && this.weaponData.name === 'Shield') { ctx.fillStyle = 'cyan'; ctx.fillRect(this.x+this.width*0.2, this.y, this.width*0.6, this.height); }
+        else if(this.pickupType === 'weapon' && this.weaponData.name === 'Toaster') { ctx.fillStyle = '#c0c0c0'; ctx.fillRect(this.x, this.y, this.width, this.height); }
+        else if(this.pickupType === 'weapon' && this.weaponData.projectileType === 'grenade') { ctx.fillStyle = 'darkgreen'; ctx.beginPath(); ctx.arc(this.x + this.width/2, this.y + this.height/2, this.width/1.5, 0, Math.PI*2); ctx.fill(); }
+        else if (this.pickupType === 'weapon' && this.weaponData.projectileType === 'stun') { ctx.fillStyle = 'yellow'; ctx.beginPath(); ctx.arc(this.x + this.width/2, this.y + this.height/2, this.width/1.5, 0, Math.PI*2); ctx.fill(); }
         else if (this.pickupType === 'weapon' && this.weaponData.projectileType === 'smoke') { ctx.fillStyle = '#ccc'; ctx.beginPath(); ctx.arc(this.x + this.width/2, this.y + this.height/2, this.width/1.5, 0, Math.PI*2); ctx.fill(); }
         else if (this.pickupType === 'helmet') { ctx.fillStyle = 'grey'; ctx.beginPath(); ctx.arc(this.x + this.width/2, this.y + this.height/2, this.width/2, Math.PI, 2*Math.PI); ctx.fill(); }
         else if (this.pickupType === 'ammo') { ctx.fillStyle = 'darkgreen'; ctx.fillRect(this.x, this.y, this.width, this.height); ctx.fillStyle = 'white'; ctx.font = '12px sans-serif'; ctx.textAlign='center'; ctx.fillText('A', this.x + this.width/2, this.y + this.height - 4); }
@@ -348,108 +637,282 @@ class Pickup {
         ctx.restore();
     }
 }
-class World { constructor(w,h,tileSize){ this.width = w; this.height = h; this.TILE_SIZE = tileSize; this.BLOCK_BASE_HEALTH = 6; this.grid = []; this.generate(); } generate(){ this.grid = Array(this.height).fill(null).map(() => Array(this.width).fill(null)); const groundLevel = this.height * 0.6; for(let y=0; y<this.height; y++){ for(let x=0; x<this.width; x++){ if(y > groundLevel){ this.grid[y][x] = { type: (y < groundLevel + 6) ? 'grass' : 'dirt', health: this.BLOCK_BASE_HEALTH, maxHealth: this.BLOCK_BASE_HEALTH }; } } } const groundY = Math.floor(groundLevel) + 1; const bh=10, bw=15, bx=this.width-bw-20, by=groundY-bh; for(let y=by; y<groundY; y++){ for(let x=bx; x<bx+bw; x++){ if(x===bx || x===bx+bw-1 || y===by){ if(!(x>bx+2 && x<bx+bw-3 && y>by+2)) this.grid[y][x] = { type:'dirt', health:this.BLOCK_BASE_HEALTH*3, maxHealth:this.BLOCK_BASE_HEALTH*3 }; } } } const wallX = 6, wallH = 15; for(let y = groundY - wallH; y < groundY; y++){ this.grid[y][wallX] = { type:'dirt', health: this.BLOCK_BASE_HEALTH*2, maxHealth: this.BLOCK_BASE_HEALTH*2 }; } for(let i = 0; i < 5; i++) { this.grid[groundY - 5 - (i*3)][10 + i*2] = { type: 'platform', health: 4, maxHealth: 4}; this.grid[groundY - 5 - (i*3)][11 + i*2] = { type: 'platform', health: 4, maxHealth: 4}; } } getTile(x,y){ if(x<0||x>=this.width||y<0||y>=this.height) return null; return this.grid[y][x]; } damageTile(x,y,dmg=1){ const t = this.getTile(x,y); if(t){ t.health -= dmg; if(t.health <= 0) this.grid[y][x] = null; } } draw(ctx){ for(let y=0;y<this.height;y++){ for(let x=0;x<this.width;x++){ const t = this.getTile(x,y); if(t){ if(t.type==='platform') {ctx.fillStyle = '#C2B280';} else {ctx.fillStyle = t.type==='dirt'?'#966A4A':'#6A9E49';} ctx.globalAlpha = Math.max(0.15, t.health/t.maxHealth); ctx.fillRect(x*this.TILE_SIZE, y*this.TILE_SIZE, this.TILE_SIZE, this.TILE_SIZE); ctx.globalAlpha = 1; if(t.maxHealth > this.BLOCK_BASE_HEALTH && t.type !== 'platform'){ ctx.strokeStyle='#000a'; ctx.strokeRect(x*this.TILE_SIZE+1,y*this.TILE_SIZE+1,this.TILE_SIZE-2,this.TILE_SIZE-2); } } } } } }
-class Camera { constructor(canvas){ this.canvas = canvas; this.x = 0; this.y = 0; this.zoom = 1; this.panSpeed = 0.08; } update(targetEntity){ const jumpZoom = targetEntity.isOnGround ? 1.0 : 0.85; const sprintMultiplier = (targetEntity instanceof Player && !targetEntity.isEnemy) ? targetEntity.sprintMultiplier : 1; const maxSprintSpeed = targetEntity.maxSpeed * sprintMultiplier; const speedPercent = Math.min(Math.abs(targetEntity.vx) / (maxSprintSpeed || 1), 1); const speedZoom = 1.0 - (speedPercent * 0.15); const targetZoom = Math.min(jumpZoom, speedZoom); this.zoom += (targetZoom - this.zoom) * 0.06; const targetX = targetEntity.x + targetEntity.width/2; const targetY = targetEntity.y - targetEntity.height/2; this.x += (targetX - this.x) * this.panSpeed; this.y += (targetY - this.y) * this.panSpeed; } }
+class Chair extends PhysicsEntity {
+    constructor(x, y, ts) {
+        super(x, y, ts);
+        this.width = ts * 1.5; this.height = ts * 2;
+        this.color = '#8B4513'; this.health = 5; this.maxHealth = 5;
+        this.friction = 0.8; this.bounciness = 0.2; this.ricochetChance = 0.4;
+    }
+    update(input, world) {
+        if (this.health <= 0) return; this.applyPhysics(world);
+        if (this.isOnGround) { this.vx *= this.friction; }
+    }
+    handleCollision(world, direction) {
+        const collided = super.handleCollision(world, direction);
+        if (collided) {
+            if (direction === 'vertical' && this.vy > 1) { this.vy *= -this.bounciness; if(Math.abs(this.vy) < 1) this.vy = 0; this.vx *= 0.9; }
+            if (direction === 'horizontal') { this.vx *= -this.bounciness; }
+        }
+        return collided;
+    }
+    draw(ctx) {
+        if (this.health <= 0) return; ctx.fillStyle = this.color;
+        ctx.globalAlpha = Math.max(0.15, this.health / this.maxHealth);
+        ctx.fillRect(this.x, this.y, this.width, this.height); 
+        ctx.fillRect(this.x - this.TILE_SIZE * 0.25, this.y + this.height * 0.5, this.width + this.TILE_SIZE * 0.5, this.height * 0.5); 
+        ctx.globalAlpha = 1;
+    }
+}
+class World { 
+    constructor(w,h,tileSize){ 
+        this.width = w; this.height = h; this.TILE_SIZE = tileSize; this.BLOCK_BASE_HEALTH = 6; this.grid = []; 
+        this.structureIdCounter = 0; this.generate(); 
+    } 
+    generate(){ 
+        this.grid = Array(this.height).fill(null).map(() => Array(this.width).fill(null)); 
+        const groundLevel = this.height * 0.6; 
+        for(let y=0; y<this.height; y++){ for(let x=0; x<this.width; x++){ if(y > groundLevel){ this.grid[y][x] = { type: (y < groundLevel + 6) ? 'grass' : 'dirt', health: this.BLOCK_BASE_HEALTH, maxHealth: this.BLOCK_BASE_HEALTH, ricochetChance: 0 }; } } } 
+        const groundY = Math.floor(groundLevel) + 1; 
+        const bh=10, bw=15, bx=this.width-bw-20, by=groundY-bh; 
+        for(let y=by; y<groundY; y++){ for(let x=bx; x<bx+bw; x++){ if(x===bx || x===bx+bw-1 || y===by){ if(!(x>bx+2 && x<bx+bw-3 && y>by+2)) this.grid[y][x] = { type:'dirt', health:this.BLOCK_BASE_HEALTH*3, maxHealth:this.BLOCK_BASE_HEALTH*3, ricochetChance: 0 }; } } } 
+        const beamId1 = ++this.structureIdCounter; for (let i = 0; i < 5; i++) { this.grid[groundY - 1 - i][150] = { type: 'beam', health: 10, maxHealth: 10, ricochetChance: 0.1, structureId: beamId1 }; }
+        const beamId2 = ++this.structureIdCounter; for (let i = 0; i < 5; i++) { this.grid[groundY - 1 - i][30] = { type: 'beam', health: 10, maxHealth: 10, ricochetChance: 0.1, structureId: beamId2 }; }
+        const wallX = 6, wallH = 15; for(let y = groundY - wallH; y < groundY; y++){ this.grid[y][wallX] = { type:'dirt', health: this.BLOCK_BASE_HEALTH*2, maxHealth: this.BLOCK_BASE_HEALTH*2, ricochetChance: 0 }; } 
+        for(let i = 0; i < 5; i++) { this.grid[groundY - 5 - (i*3)][10 + i*2] = { type: 'platform', health: 4, maxHealth: 4, ricochetChance: 0.1}; this.grid[groundY - 5 - (i*3)][11 + i*2] = { type: 'platform', health: 4, maxHealth: 4, ricochetChance: 0.1}; } 
+        const wallStart = 130; 
+        for(let i=0; i<4; i++){ for(let j=0; j<5; j++){ this.grid[groundY-1-j][wallStart+i*10] = {type:'glass', health:1, maxHealth:1, ricochetChance: 0.05}; this.grid[groundY-1-j][wallStart+1+i*10] = {type:'wood', health:8, maxHealth:8, ricochetChance: 0.1}; this.grid[groundY-1-j][wallStart+2+i*10] = {type:'concrete', health:25, maxHealth:25, ricochetChance: 0.4}; this.grid[groundY-1-j][wallStart+3+i*10] = {type:'metal', health:50, maxHealth:50, ricochetChance: 0.8}; } } 
+        const lastWallX = wallStart + 3 * 10 + 4; for (let i = 0; i < 3; i++) { this.grid[groundY - 1 - i][lastWallX] = {type: 'gascan', health: 2, maxHealth: 2, ricochetChance: 0.5}; } 
+    } 
+    getTile(x,y){ if(x<0||x>=this.width||y<0||y>=this.height) return null; return this.grid[y][x]; } 
+    damageTile(x,y,dmg=1, newExplosions, allEntities){ 
+        const t = this.getTile(x,y); 
+        if(t && t.health > 0){ t.health -= dmg; if(t.health <= 0) { if (t.type === 'gascan') { newExplosions.push(new Explosion(x * this.TILE_SIZE + this.TILE_SIZE/2, y * this.TILE_SIZE + this.TILE_SIZE/2, this.TILE_SIZE*6, 15, this, allEntities, newExplosions)); } if (t.structureId) { this.destroyStructure(t.structureId); } else { this.grid[y][x] = null; } } } 
+    }
+    destroyStructure(id) { for (let y = 0; y < this.height; y++) { for (let x = 0; x < this.width; x++) { const tile = this.grid[y][x]; if (tile && tile.structureId === id) { this.grid[y][x] = null; } } } }
+    draw(ctx){ 
+        for(let y=0;y<this.height;y++){ for(let x=0;x<this.width;x++){ const t = this.getTile(x,y); if(t){ 
+            let color;
+            switch(t.type) {
+                case 'platform': color = '#C2B280'; break; case 'gascan': color = '#c00'; break;
+                case 'glass': color = 'lightblue'; break; case 'wood': color = '#A0522D'; break;
+                case 'concrete': color = '#808080'; break; case 'metal': color = '#A9A9A9'; break;
+                case 'beam': color = '#736f6e'; break; case 'dirt': color = '#966A4A'; break;
+                default: color = '#6A9E49'; break;
+            }
+            ctx.fillStyle = color; ctx.globalAlpha = Math.max(0.15, t.health/t.maxHealth); 
+            ctx.fillRect(x*this.TILE_SIZE, y*this.TILE_SIZE, this.TILE_SIZE, this.TILE_SIZE); 
+            ctx.globalAlpha = 1; 
+            if(t.type !== 'grass' && t.type !== 'dirt' && t.type !== 'platform'){ ctx.strokeStyle='#000a'; ctx.strokeRect(x*this.TILE_SIZE+1,y*this.TILE_SIZE+1,this.TILE_SIZE-2,this.TILE_SIZE-2); } } } } 
+    } 
+}
+class Camera {
+    constructor(canvas){ this.canvas = canvas; this.x = 0; this.y = 0; this.zoom = 1; this.panSpeed = 0.08; }
+    update(targetEntity, player, worldMousePos){
+        let baseZoom = targetEntity.isOnGround ? 1.0 : 0.85;
+        const currentWeapon = player.getCurrentWeapon();
+        const isScoped = !player.isInVehicle && currentWeapon && currentWeapon.name === 'Sniper';
+        
+        if (isScoped) { baseZoom = 0.7; } 
+        else {
+            const speedSource = player.vehicleRole === 'driver' ? vehicle : targetEntity;
+            const sprintMultiplier = (speedSource instanceof Player) ? speedSource.sprintMultiplier : 1;
+            const maxSprintSpeed = speedSource.maxSpeed * sprintMultiplier;
+            const speedPercent = Math.min(Math.abs(speedSource.vx) / maxSprintSpeed, 1) || 0;
+            const speedZoom = 1.0 - (speedPercent * 0.15);
+            baseZoom = Math.min(baseZoom, speedZoom);
+        }
+        this.zoom += (baseZoom - this.zoom) * 0.06;
+
+        let targetX = targetEntity.x + targetEntity.width/2, targetY = targetEntity.y + targetEntity.height/2;
+        if(isScoped || player.vehicleRole === 'gunner') { targetX += (worldMousePos.x - targetX) * 0.4; targetY += (worldMousePos.y - targetY) * 0.4; }
+        this.x += (targetX - this.x) * this.panSpeed; this.y += (targetY - this.y) * this.panSpeed;
+    }
+}
 
 document.addEventListener('DOMContentLoaded', ()=> {
-    const mainMenu = document.getElementById('mainMenu');
-    const winScreen = document.getElementById('winScreen');
-    const quickGameButton = document.getElementById('quickGameButton');
-    const mainMenuButton = document.getElementById('mainMenuButton');
-    const canvas = document.getElementById('gameCanvas');
-    const restartButton = document.getElementById('restartButton');
-    const weaponUI = document.getElementById('weaponUI');
+    const mainMenu = document.getElementById('mainMenu'), winScreen = document.getElementById('winScreen'), gameOverScreen = document.getElementById('gameOverScreen');
+    const quickGameButton = document.getElementById('quickGameButton'), teamSelection = document.getElementById('teamSelection');
+    const copsButton = document.getElementById('copsButton'), criminalsButton = document.getElementById('criminalsButton');
+    const winMainMenuButton = document.getElementById('winMainMenuButton'), gameOverMainMenuButton = document.getElementById('gameOverMainMenuButton');
+    const leaderboardList = document.getElementById('leaderboard'), finalTimeDisplay = document.getElementById('finalTime');
+    const winMessage = document.getElementById('winMessage'), gameOverMessage = document.getElementById('gameOverMessage'), gameOverReason = document.getElementById('gameOverReason');
+    const canvas = document.getElementById('gameCanvas'), restartButton = document.getElementById('restartButton'), weaponUI = document.getElementById('weaponUI'), timerUI = document.getElementById('timerUI');
+    const difficultySlider = document.getElementById('difficultySlider'), difficultyValue = document.getElementById('difficultyValue');
     const ctx = canvas.getContext('2d');
     
     const TILE_SIZE = 16, WORLD_W = 300, WORLD_H = 60;
     canvas.width = 1280; canvas.height = 720;
     
-    let input, world, player, enemy, vehicle, hostage, camera, allEntities, projectiles, mousePos, isMouseDown, shootTimer, pickups, explosions, smokeClouds;
-    let animationFrameId;
+    let input, world, player, cops, criminals, vehicle, hostage, chairs, camera, allEntities, projectiles, mousePos = {x:0, y:0}, isMouseDown, shootTimer, pickups, explosions, smokeClouds, stunClouds, throwableProjectiles;
+    let animationFrameId, gameStartTime, gameDifficulty = 3, playerTeam = 'cops';
 
     function initializeGame(){
         input = new InputHandler(); world = new World(WORLD_W, WORLD_H, TILE_SIZE);
-        const spawnX = 15 * TILE_SIZE, groundY = Math.floor(WORLD_H * 0.6) * TILE_SIZE;
-        player = new Player(spawnX, groundY - (16*3), TILE_SIZE, 'red', false, false);
-        const buildingX = WORLD_W - 15 - 20;
-        enemy = new Player((buildingX + 10) * TILE_SIZE, groundY - (16*3), TILE_SIZE, 'blue', true, false);
-        hostage = new Player((buildingX + 5) * TILE_SIZE, groundY - (16*3), TILE_SIZE, 'yellow', false, true);
-        vehicle = new Vehicle(spawnX + 200, groundY - (TILE_SIZE*5), TILE_SIZE);
+        const copSpawnX = 15 * TILE_SIZE, groundY = Math.floor(WORLD_H * 0.6) * TILE_SIZE;
+        const criminalSpawnX = WORLD_W - 15 - 20;
+
+        cops = []; criminals = [];
+        
+        if (playerTeam === 'cops') {
+            player = new Player(copSpawnX, groundY - (16*3), TILE_SIZE, 'red', true, false, false, gameDifficulty);
+            cops.push(player);
+            cops.push(new Player(copSpawnX - 50, groundY - (16*3), TILE_SIZE, 'green', true, false, false, gameDifficulty));
+
+            criminals.push(new Player((criminalSpawnX + 10) * TILE_SIZE, groundY - (16*3), TILE_SIZE, 'blue', false, true, false, gameDifficulty));
+            criminals.push(new Player((criminalSpawnX + 7) * TILE_SIZE, groundY - TILE_SIZE, TILE_SIZE, 'blue', false, true, false, gameDifficulty));
+            criminals.push(new Player((criminalSpawnX + 13) * TILE_SIZE, groundY - TILE_SIZE, TILE_SIZE, 'blue', false, true, false, gameDifficulty));
+            criminals[1].weapons = [new Weapon("Shotgun","ranged",2,40,3,0.2,'bullet',8,16, 6)];
+            criminals[2].weapons = [new Weapon("SMG", "ranged", 1, 5, 1, 0.1, 'bullet', 30, 60, 4)];
+        } else { // playerTeam === 'criminals'
+            player = new Player((criminalSpawnX + 10) * TILE_SIZE, groundY - (16*3), TILE_SIZE, 'blue', false, true, false, gameDifficulty);
+            criminals.push(player);
+            criminals.push(new Player((criminalSpawnX + 7) * TILE_SIZE, groundY - TILE_SIZE, TILE_SIZE, 'blue', false, true, false, gameDifficulty));
+            criminals.push(new Player((criminalSpawnX + 13) * TILE_SIZE, groundY - TILE_SIZE, TILE_SIZE, 'blue', false, true, false, gameDifficulty));
+            criminals[1].weapons = [new Weapon("Shotgun","ranged",2,40,3,0.2,'bullet',8,16, 6)];
+            
+            cops.push(new Player(copSpawnX, groundY - (16*3), TILE_SIZE, 'red', true, false, false, gameDifficulty));
+            cops.push(new Player(copSpawnX - 50, groundY - (16*3), TILE_SIZE, 'green', true, false, false, gameDifficulty));
+        }
+        player.isPlayer = true;
+
+        hostage = new Player((criminalSpawnX + 5) * TILE_SIZE, groundY - (16*3), TILE_SIZE, 'yellow', false, false, true);
+        vehicle = new Vehicle(copSpawnX + 400, groundY - (TILE_SIZE*6), TILE_SIZE);
+        chairs = [ new Chair(10 * TILE_SIZE, groundY - TILE_SIZE*8, TILE_SIZE), new Chair((criminalSpawnX + 2) * TILE_SIZE, groundY - TILE_SIZE, TILE_SIZE) ];
+        
         pickups = [];
-        pickups.push(new Pickup(18 * TILE_SIZE, groundY - TILE_SIZE*5, 'weapon', new Weapon("Grenade","ranged",12,70,1,0,'grenade', 4, 4), TILE_SIZE));
-        pickups.push(new Pickup(22 * TILE_SIZE, groundY - TILE_SIZE*5, 'weapon', new Weapon("Smoke Grenade","ranged",0,70,1,0,'smoke', 2, 2), TILE_SIZE));
-        pickups.push(new Pickup(26 * TILE_SIZE, groundY - TILE_SIZE*5, 'weapon', new Weapon("Shotgun","ranged",2,40,3,0.2,'bullet',8,16), TILE_SIZE));
+        pickups.push(new Pickup(18 * TILE_SIZE, groundY - TILE_SIZE*5, 'weapon', new Weapon("Grenade","ranged",12,70,1,0,'grenade', 4, 4, 2), TILE_SIZE));
+        pickups.push(new Pickup(22 * TILE_SIZE, groundY - TILE_SIZE*5, 'weapon', new Weapon("Shotgun","ranged",2,40,3,0.2,'bullet',8,16, 6), TILE_SIZE));
+        pickups.push(new Pickup(12 * TILE_SIZE, groundY - TILE_SIZE * 8, 'weapon', new Weapon("SMG", "ranged", 1, 5, 1, 0.1, 'bullet', 30, 60, 4), TILE_SIZE));
+        pickups.push(new Pickup(14 * TILE_SIZE, groundY - TILE_SIZE * 11, 'weapon', new Weapon("Toaster", "throwable", 5, 50, 1, 0, 'toaster', 1, 1, 4), TILE_SIZE));
+        pickups.push(new Pickup(16 * TILE_SIZE, groundY - TILE_SIZE * 14, 'weapon', new Weapon("Stun Grenade", "ranged", 0, 70, 1, 0, 'stun', 2, 2, 2), TILE_SIZE));
+        pickups.push(new Pickup(6 * TILE_SIZE, groundY - TILE_SIZE * 16, 'weapon', new Weapon("Explosive Charge", "explosive", 15, 20, 1, 0, 'charge', 1, 1, 5), TILE_SIZE));
+        pickups.push(new Pickup(14 * TILE_SIZE, groundY - TILE_SIZE * 11, 'weapon', new Weapon("Shield", "defense", 0, 0, 0, 0, 'none', 1, 1, 10), TILE_SIZE));
+        pickups.push(new Pickup(vehicle.x + TILE_SIZE * 5, groundY - TILE_SIZE, 'weapon', new Weapon("Sniper", "ranged", 10, 120, 1, 0, 'bullet', 5, 10, 8), TILE_SIZE));
         pickups.push(new Pickup(vehicle.x + 40, groundY - TILE_SIZE, 'ammo', 10, TILE_SIZE));
 
-        allEntities = [player, enemy, vehicle, hostage];
-        projectiles = []; explosions = []; smokeClouds = []; mousePos = {x:0,y:0}; isMouseDown = false; shootTimer = 0; camera = new Camera(canvas);
+        allEntities = [vehicle, hostage, ...chairs, ...cops, ...criminals];
+        projectiles = []; throwableProjectiles = []; explosions = []; smokeClouds = []; stunClouds = []; isMouseDown = false; shootTimer = 0; camera = new Camera(canvas);
+        gameStartTime = Date.now();
     }
     
     function showMainMenu() {
         mainMenu.classList.remove('hidden');
-        winScreen.classList.add('hidden');
+        winScreen.classList.add('hidden'); gameOverScreen.classList.add('hidden');
         canvas.classList.add('hidden');
-        restartButton.classList.add('hidden');
-        weaponUI.classList.add('hidden');
+        document.querySelectorAll('.game-ui, #restartButton').forEach(el => el.classList.add('hidden'));
+        quickGameButton.classList.remove('hidden');
+        teamSelection.classList.add('hidden');
+        displayLeaderboard();
     }
 
-    function startGame() {
+    function startGame(team) {
+        playerTeam = team;
         mainMenu.classList.add('hidden');
-        winScreen.classList.add('hidden');
         canvas.classList.remove('hidden');
-        restartButton.classList.remove('hidden');
-        weaponUI.classList.remove('hidden');
-        
+        document.querySelectorAll('.game-ui, #restartButton').forEach(el => el.classList.remove('hidden'));
         initializeGame();
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
         gameLoop();
     }
 
-    function showWinScreen() {
+    function showWinScreen(message, finalTime) {
         winScreen.classList.remove('hidden');
         canvas.classList.add('hidden');
-        restartButton.classList.add('hidden');
-        weaponUI.classList.add('hidden');
+        document.querySelectorAll('.game-ui, #restartButton').forEach(el => el.classList.add('hidden'));
+        winMessage.textContent = message;
+        finalTimeDisplay.textContent = `Time: ${finalTime.toFixed(2)} seconds`;
+        if (playerTeam === 'cops') { updateLeaderboard(finalTime); }
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
     }
 
-    quickGameButton.addEventListener('click', startGame);
+    function showGameOverScreen(message, reason) {
+        gameOverScreen.classList.remove('hidden');
+        canvas.classList.add('hidden');
+        document.querySelectorAll('.game-ui, #restartButton').forEach(el => el.classList.add('hidden'));
+        gameOverMessage.textContent = message;
+        gameOverReason.textContent = reason;
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    }
+    
+    function updateLeaderboard(newTime) {
+        const leaderboardKey = 'mechGameLeaderboard_cops'; let scores = [];
+        try { scores = JSON.parse(localStorage.getItem(leaderboardKey) || '[]'); } catch (e) { scores = []; }
+        scores.push(newTime);
+        scores.sort((a, b) => a - b);
+        localStorage.setItem(leaderboardKey, JSON.stringify(scores.slice(0, 10)));
+    }
+
+    function displayLeaderboard() {
+        const leaderboardKey = 'mechGameLeaderboard_cops'; let scores = [];
+        try { scores = JSON.parse(localStorage.getItem(leaderboardKey) || '[]'); } catch (e) { scores = []; }
+        leaderboardList.innerHTML = '';
+        if(scores.length > 0) { scores.forEach(score => { const li = document.createElement('li'); li.textContent = `${score.toFixed(2)}s`; leaderboardList.appendChild(li); }); } 
+        else { leaderboardList.innerHTML = '<li>No high scores yet!</li>'; }
+    }
+
+    difficultySlider.addEventListener('input', (e) => {
+        gameDifficulty = parseInt(e.target.value, 10);
+        difficultyValue.textContent = gameDifficulty;
+    });
+
+    quickGameButton.addEventListener('click', () => {
+        quickGameButton.classList.add('hidden');
+        teamSelection.classList.remove('hidden');
+    });
+    copsButton.addEventListener('click', () => startGame('cops'));
+    criminalsButton.addEventListener('click', () => startGame('criminals'));
     restartButton.addEventListener('click', initializeGame);
-    mainMenuButton.addEventListener('click', showMainMenu);
+    winMainMenuButton.addEventListener('click', showMainMenu);
+    gameOverMainMenuButton.addEventListener('click', showMainMenu);
     
     canvas.addEventListener('mousedown', ()=> isMouseDown = true); canvas.addEventListener('mouseup', ()=> isMouseDown = false);
     canvas.addEventListener('mousemove', e => { const r = canvas.getBoundingClientRect(); mousePos.x = e.clientX - r.left; mousePos.y = e.clientY - r.top; });
     
     function drawCrosshair(ctx){ ctx.strokeStyle = 'white'; ctx.beginPath(); ctx.moveTo(mousePos.x - 8, mousePos.y); ctx.lineTo(mousePos.x + 8, mousePos.y); ctx.moveTo(mousePos.x, mousePos.y - 8); ctx.lineTo(mousePos.x, mousePos.y + 8); ctx.stroke(); }
     
-    function updateUI(){
-        let uiText = "Weapon: ";
-        const currentWeapon = player.isInVehicle ? vehicle.weapon : player.getCurrentWeapon();
-        if(currentWeapon){
-            uiText += currentWeapon.name;
-            if(currentWeapon.ammo !== undefined && currentWeapon.ammo !== Infinity){ uiText += ` | ${currentWeapon.ammo}/${currentWeapon.maxAmmo}`; } 
-            else if (currentWeapon.name === 'Pistol') { uiText += ` | ∞`; }
-        } else { uiText += 'Fist'; }
+    function updateUI(gameTime){
+        let uiText = ""; 
+        if (player.vehicleRole === 'gunner') { uiText = 'Vehicle Cannon'; }
+        else if (player.vehicleRole === 'driver') { uiText = 'Driving'; }
+        else {
+            const currentWeapon = player.getCurrentWeapon();
+            if (player.stunTimer > 0) { uiText = "STUNNED"; }
+            else if(currentWeapon){
+                uiText += currentWeapon.name;
+                const otherWeaponsCount = player.weapons.filter(w => w.name !== 'Pistol').length;
+                if (currentWeapon.name === "Explosive Charge") { uiText += player.activeCharge ? ' (Armed)' : ` | ${currentWeapon.ammo}/${currentWeapon.maxAmmo}`; }
+                else if(currentWeapon.name !== "Shield" && currentWeapon.ammo !== undefined && currentWeapon.ammo !== Infinity){ uiText += ` | ${currentWeapon.ammo}/${currentWeapon.maxAmmo}`; } 
+                else if (currentWeapon.name === 'Pistol') { uiText += ` | ∞`; }
+                uiText += ` (${otherWeaponsCount}/4) | W: ${player.totalWeight.toFixed(1)}`;
+            } else { uiText += 'Fist'; }
+        }
+        if (player.hasHelmet && !player.isInVehicle) uiText += ' (H)';
         weaponUI.textContent = uiText;
+        timerUI.textContent = gameTime.toFixed(2);
     }
 
     function gameLoop(){
+        const gameTime = (Date.now() - gameStartTime) / 1000;
         if(shootTimer > 0) shootTimer--;
-        if(isMouseDown && shootTimer <= 0){
-            const shooter = player.isInVehicle ? vehicle : player;
-            const weapon = shooter.weapon || (shooter.getCurrentWeapon && shooter.getCurrentWeapon());
-            if(shooter.health > 0 && weapon && weapon.ammo > 0){
-                const worldMouseX = (mousePos.x - canvas.width/2)/camera.zoom + camera.x, worldMouseY = (mousePos.y - canvas.height/2)/camera.zoom + camera.y;
-                const launchY = (shooter.getHeadRect? shooter.getHeadRect().y : shooter.y + shooter.height/2) || shooter.y + shooter.height/2;
-                const launchX = shooter.x+shooter.width/2;
-                if(weapon.projectileType === 'grenade' || weapon.projectileType === 'smoke') {
-                    const angle = Math.atan2(worldMouseY - launchY, worldMouseX - launchX);
-                    projectiles.push(new ThrownGrenade(launchX, launchY, Math.cos(angle)*15, Math.sin(angle)*15, weapon.damage, TILE_SIZE, weapon.projectileType));
-                } else {
-                    for(let i=0;i<weapon.pellets;i++){ projectiles.push(new Projectile(launchX, launchY, worldMouseX, worldMouseY, shooter, weapon.damage, (Math.random()-0.5) * weapon.spread)); }
+        const worldMouseX = (mousePos.x - canvas.width/2)/camera.zoom + camera.x, worldMouseY = (mousePos.y - canvas.height/2)/camera.zoom + camera.y;
+        const newExplosions = [];
+
+        if(isMouseDown && player.stunTimer <= 0){
+            if (player.vehicleRole === 'gunner' && vehicle.shootTimer <= 0) {
+                const weapon = vehicle.weapon; const launchX = vehicle.x + vehicle.width * 0.75, launchY = vehicle.y + vehicle.height/2;
+                projectiles.push(new Projectile(launchX, launchY, worldMouseX, worldMouseY, vehicle, weapon.damage, vehicle.weaponAngle - Math.atan2(worldMouseY - launchY, worldMouseX - launchX)));
+                vehicle.shootTimer = weapon.cooldown;
+            }
+            else if (!player.isInVehicle && shootTimer <= 0) {
+                const weapon = player.getCurrentWeapon();
+                if(player.health > 0 && weapon && weapon.name !== "Shield"){
+                    const weaponLength = player.TILE_SIZE * 2; const launchX = player.x + player.width/2 + Math.cos(player.aimAngle) * weaponLength; const launchY = player.y + player.height/2 + Math.sin(player.aimAngle) * weaponLength;
+                    if (weapon.projectileType === 'charge') { if (player.activeCharge) { player.activeCharge.detonate(newExplosions, allEntities, player); shootTimer = weapon.cooldown; } else if (weapon.ammo > 0) { const charge = new ExplosiveCharge(launchX, launchY, Math.cos(player.aimAngle) * 15, Math.sin(player.aimAngle) * 15, weapon.damage, TILE_SIZE); throwableProjectiles.push(charge); player.activeCharge = charge; weapon.ammo--; shootTimer = weapon.cooldown; } } 
+                    else if(['grenade', 'smoke', 'stun'].includes(weapon.projectileType)) { if(weapon.ammo > 0) { throwableProjectiles.push(new ThrownGrenade(launchX, launchY, Math.cos(player.aimAngle)*15, Math.sin(player.aimAngle)*15, weapon.damage, TILE_SIZE, weapon.projectileType)); weapon.ammo--; shootTimer = weapon.cooldown; } } 
+                    else if (weapon.projectileType === 'toaster') { if(weapon.ammo > 0) { throwableProjectiles.push(new ThrownToaster(launchX, launchY, Math.cos(player.aimAngle)*20, Math.sin(player.aimAngle)*20, TILE_SIZE)); weapon.ammo--; shootTimer = weapon.cooldown; const wepIdx = player.weapons.findIndex(w => w.name === 'Toaster'); if (wepIdx > -1) { player.weapons.splice(wepIdx, 1); player.cycleWeapon(0); } } } 
+                    else if (weapon.ammo > 0) { for(let i=0;i<weapon.pellets;i++){ projectiles.push(new Projectile(launchX, launchY, worldMouseX, worldMouseY, player, weapon.damage, (Math.random()-0.5) * weapon.spread)); } if(weapon.ammo !== Infinity) weapon.ammo--; shootTimer = weapon.cooldown; }
                 }
-                if(weapon.ammo !== Infinity) weapon.ammo--;
-                shootTimer = weapon.cooldown;
             }
         }
         if(input.wasKeyJustPressed('c') && player.health > 0 && !player.isInVehicle){
@@ -457,56 +920,70 @@ document.addEventListener('DOMContentLoaded', ()=> {
             for(let i = pickups.length - 1; i >= 0; i--){
                 const pu = pickups[i]; if(pu.collected || pu.health <= 0 || pu.pickupType === 'ammo') continue;
                 if(Math.hypot((player.x+player.width/2)-(pu.x+pu.width/2), (player.y+player.height/2)-(pu.y+pu.height/2)) <= PICKUP_RANGE){
-                    if(pu.pickupType === 'weapon'){ player.weapons.push(pu.weaponData); player.currentWeaponIndex = player.weapons.length - 1; pickedUpItem = true; }
+                    if(pu.pickupType === 'weapon'){ const otherWeaponsCount = player.weapons.filter(w => w.name !== 'Pistol').length; if (otherWeaponsCount < 4) { player.weapons.push(pu.weaponData); player.currentWeaponIndex = player.weapons.length - 1; pickedUpItem = true; } }
                     else if (pu.pickupType === 'helmet' && !player.hasHelmet) { player.hasHelmet = true; pickedUpItem = true;}
                     if (pickedUpItem) { pu.collected = true; break; }
                 }
             }
-            if(!pickedUpItem){
-                const curWeapon = player.getCurrentWeapon();
-                if(curWeapon && curWeapon.name !== 'Fist' && curWeapon.name !== 'Pistol'){
-                    const removed = player.weapons.splice(player.currentWeaponIndex,1)[0];
-                    if(player.currentWeaponIndex >= player.weapons.length) player.currentWeaponIndex = player.weapons.length - 1; if(player.currentWeaponIndex < 0) player.currentWeaponIndex = 0;
-                    const p = new Pickup(player.x+player.width/2-TILE_SIZE/2, player.y-player.height*0.25, 'weapon', removed, TILE_SIZE);
-                    p.vx = (player.vx || (player.lastMoveDirection*2) || 2); p.vy = -7; pickups.push(p);
-                }
+            if (!pickedUpItem) {
+                for (let i = throwableProjectiles.length - 1; i >= 0; i--) { const t = throwableProjectiles[i]; if (t instanceof ThrownToaster && t.active) { if(Math.hypot((player.x+player.width/2)-(t.x+t.width/2), (player.y+player.height/2)-(t.y+t.height/2)) <= PICKUP_RANGE){ const otherWeaponsCount = player.weapons.filter(w => w.name !== 'Pistol').length; if (otherWeaponsCount < 4) { player.weapons.push(new Weapon("Toaster", "throwable", 5, 50, 1, 0, 'toaster', 1, 1, 4)); player.currentWeaponIndex = player.weapons.length - 1; t.active = false; pickedUpItem = true; break; } } } }
+            }
+            if(!pickedUpItem){ const curWeapon = player.getCurrentWeapon(); if(curWeapon && curWeapon.name !== 'Pistol'){ const removed = player.weapons.splice(player.currentWeaponIndex,1)[0]; if(player.currentWeaponIndex >= player.weapons.length) player.currentWeaponIndex = player.weapons.length - 1; if(player.currentWeaponIndex < 0) player.currentWeaponIndex = 0; const p = new Pickup(player.x+player.width/2-TILE_SIZE/2, player.y-player.height*0.25, 'weapon', removed, TILE_SIZE); p.vx = (player.vx || (player.lastMoveDirection*2) || 2); p.vy = -7; pickups.push(p); } }
+        }
+        if(input.wasKeyJustPressed('b') && player.health > 0 && !player.isInVehicle && player.hasHelmet){ player.hasHelmet = false; const helmetPickup = new Pickup(player.x+player.width/2-TILE_SIZE/2, player.y-player.height*0.25, 'helmet', null, TILE_SIZE); helmetPickup.vx = (player.vx || (player.lastMoveDirection*2) || 2); helmetPickup.vy = -7; pickups.push(helmetPickup); }
+        if(input.wasKeyJustPressed('v') && player.health > 0){ 
+            if (player.isInVehicle) { vehicle.eject(player.vehicleRole); }
+            else {
+                if (player.isCop && criminals.every(c => c.health <= 0) && Math.hypot((player.x+player.width/2)-(hostage.x+hostage.width/2), (player.y+player.height/2)-(hostage.y+hostage.height/2)) < TILE_SIZE * 3) { hostage.isRescued = true; }
+                else if(Math.hypot((player.x+player.width/2)-(vehicle.x+vehicle.width/2),(player.y+player.height/2)-(vehicle.y+vehicle.height/2)) < vehicle.width*1.2) { 
+                    if (player.x < vehicle.x + vehicle.width/2 && !vehicle.driver) { player.vehicleRole = 'driver'; vehicle.driver = player; } 
+                    else if (player.x >= vehicle.x + vehicle.width/2 && !vehicle.gunner) { player.vehicleRole = 'gunner'; vehicle.gunner = player; }
+                } 
             }
         }
-
-        if(input.wasKeyJustPressed('v') && player.health > 0 && !player.isInVehicle){ 
-            if(Math.hypot((player.x+player.width/2)-(vehicle.x+vehicle.width/2),(player.y+player.height/2)-(vehicle.y+vehicle.height/2)) < vehicle.width*1.2 && !vehicle.occupant) {
-                player.isInVehicle=true; vehicle.occupant=player;
-            } else if (enemy.health <= 0 && Math.hypot((player.x+player.width/2)-(hostage.x+hostage.width/2), (player.y+player.height/2)-(hostage.y+hostage.height/2)) < TILE_SIZE * 3) {
-                hostage.isRescued = true;
-            }
-        } else if (input.wasKeyJustPressed('v') && player.isInVehicle) {
-            vehicle.eject();
-        }
-
         if(!player.isInVehicle){ if(input.wasKeyJustPressed('q'))player.cycleWeapon(-1); if(input.wasKeyJustPressed('e'))player.cycleWeapon(1); }
         
-        const gameContext = { player, enemy, hostage };
-        allEntities.forEach(e => e.update(input, world, gameContext, projectiles, smokeClouds, pickups));
-        [...projectiles, ...pickups, ...explosions, ...smokeClouds].forEach(o => o.update(world, allEntities, pickups, explosions, smokeClouds));
-        projectiles = projectiles.filter(p => p.active); pickups = pickups.filter(p => !p.collected); explosions = explosions.filter(e => e.active); smokeClouds = smokeClouds.filter(s => s.active);
+        allEntities = [vehicle, hostage, ...chairs, ...cops, ...criminals];
+        const gameContext = { cops, criminals };
+        allEntities.forEach(e => e.update(input, world, gameContext, projectiles, smokeClouds, pickups, {x: worldMouseX, y: worldMouseY}, throwableProjectiles));
+        pickups.forEach(p => p.update(world));
+        throwableProjectiles.forEach(p => p.update(world, allEntities, newExplosions, smokeClouds, stunClouds, player));
+        projectiles.forEach(p => p.update(world, allEntities, pickups, newExplosions, throwableProjectiles));
+        explosions.push(...newExplosions);
+        [...explosions, ...smokeClouds, ...stunClouds].forEach(o => o.update(allEntities));
         
-        if (hostage.isRescued) {
-            showWinScreen();
-            return;
+        projectiles = projectiles.filter(p => p.active); pickups = pickups.filter(p => !p.collected); throwableProjectiles = throwableProjectiles.filter(p => p.active); explosions = explosions.filter(e => e.active); smokeClouds = smokeClouds.filter(s => s.active); stunClouds = stunClouds.filter(s => s.active);
+        cops = cops.filter(c => c.health > 0); criminals = criminals.filter(c => c.health > 0);
+        
+        // --- Win/Loss Conditions ---
+        if (playerTeam === 'cops') {
+            if (hostage.isRescued) { showWinScreen("Hostage Rescued!", gameTime); return; }
+            if (cops.length === 0) { showGameOverScreen("Team Wiped!", "All cops were eliminated."); return; }
+            if (!cops.includes(player)) { showGameOverScreen("You Were Killed!", "The cops have failed."); return; }
+            if (hostage.health <= 0) { showGameOverScreen("Hostage Killed!", "The hostage is collateral damage."); return; }
+        } else { // playerTeam === 'criminals'
+            if (cops.length === 0) { showWinScreen("Cops Eliminated!", gameTime); return; }
+            if (criminals.length === 0) { showGameOverScreen("Team Wiped!", "Your entire team was eliminated."); return; }
+            if (!criminals.includes(player)) { showGameOverScreen("You Were Killed!", "The criminals have failed."); return; }
+            if (hostage.health <= 0) { showGameOverScreen("Hostage Killed!", "You failed to protect the asset."); return; }
         }
 
         const cameraTarget = player.isInVehicle ? vehicle : player;
-        camera.update(cameraTarget);
+        camera.update(cameraTarget, player, {x: worldMouseX, y: worldMouseY});
 
         ctx.clearRect(0,0,canvas.width,canvas.height); ctx.save();
         ctx.translate(canvas.width/2, canvas.height/2); ctx.scale(camera.zoom, camera.zoom);
-        ctx.translate(-camera.x, -camera.y);
-        world.draw(ctx); allEntities.forEach(e => e.draw(ctx)); projectiles.forEach(p => p.draw(ctx)); pickups.forEach(pu => pu.draw(ctx)); explosions.forEach(e => e.draw(ctx)); smokeClouds.forEach(s => s.draw(ctx));
+        ctx.translate(-Math.floor(camera.x), -Math.floor(camera.y));
+        world.draw(ctx);
+        [...cops, ...criminals, vehicle, hostage, ...chairs].sort((a,b) => (a.y + a.height) - (b.y + b.height)).forEach(e => e.draw(ctx));
+        projectiles.forEach(p => p.draw(ctx)); throwableProjectiles.forEach(p => p.draw(ctx)); pickups.forEach(pu => pu.draw(ctx)); explosions.forEach(e => e.draw(ctx)); smokeClouds.forEach(s => s.draw(ctx)); stunClouds.forEach(s => s.draw(ctx));
         ctx.restore();
-        drawCrosshair(ctx); updateUI();
+        drawCrosshair(ctx); updateUI(gameTime);
         input.clearJustPressed();
         animationFrameId = requestAnimationFrame(gameLoop);
     }
+
+    showMainMenu();
 });
 </script>
 </body>
