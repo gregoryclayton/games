@@ -21,6 +21,8 @@
         #timerUI { top:20px; right:20px; font-size: 1.5rem; }
         #difficultyContainer, #teamSelection, #teamSizeSelection { margin-top:2rem; }
         #editModeUI { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; font-family: monospace; }
+        #joystick-zone { position: fixed; bottom: 30px; left: 30px; width: 120px; height: 120px; background: rgba(255,255,255,0.2); border-radius: 50%; z-index: 100; touch-action: none; }
+        #joystick-knob { position: absolute; top: 50%; left: 50%; width: 50px; height: 50px; background: rgba(255,255,255,0.5); border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
     </style>
 </head>
 <body>
@@ -65,6 +67,9 @@
     <div id="timerUI" class="game-ui hidden">0.00</div>
     <div id="editModeUI" class="hidden"></div>
     <canvas id="gameCanvas" class="hidden"></canvas>
+    <div id="joystick-zone" class="hidden">
+        <div id="joystick-knob"></div>
+    </div>
 
 <script>
 /*
@@ -1145,6 +1150,8 @@ document.addEventListener('DOMContentLoaded', ()=> {
         document.querySelectorAll('.game-ui, #restartButton').forEach(el => el.classList.remove('hidden'));
         initializeGame();
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        // Show joystick on mobile devices
+        if (typeof showJoystickIfMobile === 'function') showJoystickIfMobile();
         gameLoop();
     }
 
@@ -1451,6 +1458,129 @@ document.addEventListener('DOMContentLoaded', ()=> {
             }
         }
     });
+
+    // Virtual Joystick for Mobile
+    const joystickZone = document.getElementById('joystick-zone');
+    const joystickKnob = document.getElementById('joystick-knob');
+    let joystickActive = false;
+    let joystickTouchId = null;
+    const joystickThreshold = 0.3; // Threshold for key activation (0-1)
+
+    function getJoystickRadius() {
+        return joystickZone.offsetWidth / 2;
+    }
+
+    function handleJoystickStart(e) {
+        e.preventDefault();
+        const touch = e.changedTouches[0];
+        joystickActive = true;
+        joystickTouchId = touch.identifier;
+        updateJoystick(touch);
+    }
+
+    function handleJoystickMove(e) {
+        e.preventDefault();
+        if (!joystickActive) return;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            if (e.changedTouches[i].identifier === joystickTouchId) {
+                updateJoystick(e.changedTouches[i]);
+                break;
+            }
+        }
+    }
+
+    function handleJoystickEnd(e) {
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            if (e.changedTouches[i].identifier === joystickTouchId) {
+                joystickActive = false;
+                joystickTouchId = null;
+                resetJoystick();
+                break;
+            }
+        }
+    }
+
+    function updateJoystick(touch) {
+        const rect = joystickZone.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const radius = getJoystickRadius();
+        
+        let dx = touch.clientX - centerX;
+        let dy = touch.clientY - centerY;
+        
+        // Calculate distance from center
+        const distance = Math.hypot(dx, dy);
+        
+        // Clamp to radius
+        if (distance > radius) {
+            dx = (dx / distance) * radius;
+            dy = (dy / distance) * radius;
+        }
+        
+        // Update knob position
+        joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+        
+        // Normalize to -1 to 1 range
+        const normX = dx / radius;
+        const normY = dy / radius;
+        
+        // Update input keys based on joystick position
+        if (input) {
+            // Left/Right
+            if (normX < -joystickThreshold) {
+                input.keys.add('a');
+            } else {
+                input.keys.delete('a');
+            }
+            if (normX > joystickThreshold) {
+                input.keys.add('d');
+            } else {
+                input.keys.delete('d');
+            }
+            
+            // Up/Down
+            if (normY < -joystickThreshold) {
+                input.keys.add('w');
+            } else {
+                input.keys.delete('w');
+            }
+            if (normY > joystickThreshold) {
+                input.keys.add('s');
+            } else {
+                input.keys.delete('s');
+            }
+        }
+    }
+
+    function resetJoystick() {
+        joystickKnob.style.transform = 'translate(-50%, -50%)';
+        if (input) {
+            input.keys.delete('w');
+            input.keys.delete('a');
+            input.keys.delete('s');
+            input.keys.delete('d');
+        }
+    }
+
+    joystickZone.addEventListener('touchstart', handleJoystickStart, { passive: false });
+    joystickZone.addEventListener('touchmove', handleJoystickMove, { passive: false });
+    joystickZone.addEventListener('touchend', handleJoystickEnd, { passive: false });
+    joystickZone.addEventListener('touchcancel', handleJoystickEnd, { passive: false });
+
+    // Mobile detection and joystick visibility
+    function isMobileDevice() {
+        return ('ontouchstart' in window) || 
+               (navigator.maxTouchPoints > 0) || 
+               /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    }
+
+    function showJoystickIfMobile() {
+        if (isMobileDevice()) {
+            joystickZone.classList.remove('hidden');
+        }
+    }
 
     showMainMenu();
 });
