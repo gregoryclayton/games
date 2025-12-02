@@ -1150,6 +1150,8 @@ document.addEventListener('DOMContentLoaded', ()=> {
         document.querySelectorAll('.game-ui, #restartButton').forEach(el => el.classList.remove('hidden'));
         initializeGame();
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        // Show joystick on mobile devices
+        if (typeof showJoystickIfMobile === 'function') showJoystickIfMobile();
         gameLoop();
     }
 
@@ -1462,8 +1464,11 @@ document.addEventListener('DOMContentLoaded', ()=> {
     const joystickKnob = document.getElementById('joystick-knob');
     let joystickActive = false;
     let joystickTouchId = null;
-    const joystickRadius = 60; // Half of joystick-zone width
     const joystickThreshold = 0.3; // Threshold for key activation (0-1)
+
+    function getJoystickRadius() {
+        return joystickZone.offsetWidth / 2;
+    }
 
     function handleJoystickStart(e) {
         e.preventDefault();
@@ -1500,6 +1505,7 @@ document.addEventListener('DOMContentLoaded', ()=> {
         const rect = joystickZone.getBoundingClientRect();
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
+        const radius = getJoystickRadius();
         
         let dx = touch.clientX - centerX;
         let dy = touch.clientY - centerY;
@@ -1508,17 +1514,17 @@ document.addEventListener('DOMContentLoaded', ()=> {
         const distance = Math.hypot(dx, dy);
         
         // Clamp to radius
-        if (distance > joystickRadius) {
-            dx = (dx / distance) * joystickRadius;
-            dy = (dy / distance) * joystickRadius;
+        if (distance > radius) {
+            dx = (dx / distance) * radius;
+            dy = (dy / distance) * radius;
         }
         
         // Update knob position
         joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
         
         // Normalize to -1 to 1 range
-        const normX = dx / joystickRadius;
-        const normY = dy / joystickRadius;
+        const normX = dx / radius;
+        const normY = dy / radius;
         
         // Update input keys based on joystick position
         if (input) {
@@ -1575,13 +1581,6 @@ document.addEventListener('DOMContentLoaded', ()=> {
             joystickZone.classList.remove('hidden');
         }
     }
-
-    // Show joystick when game starts on mobile
-    const originalStartGame = startGame;
-    startGame = function() {
-        originalStartGame();
-        showJoystickIfMobile();
-    };
 
     showMainMenu();
 });
